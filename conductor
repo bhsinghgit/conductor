@@ -1,0 +1,62 @@
+#!/usr/bin/env python
+import json
+import httplib
+import optparse
+
+def http_client(method, resource, args):
+    conn  = httplib.HTTPConnection(opt.api)
+    conn.request(method, resource, json.dumps(args))
+    response = conn.getresponse()
+
+    try:
+        body = json.loads(response.read())
+    except ValueError:
+        body = None
+    return response.status, response.reason, body
+
+op = optparse.OptionParser()
+op.add_option('--api',         dest='api')
+op.add_option('--cmd',         dest='cmd')
+op.add_option('--appname',     dest='appname')
+op.add_option('--workername',  dest='workername')
+op.add_option('--authkey',     dest='authkey')
+op.add_option('--pool',        dest='pool')
+op.add_option('--input',       dest='input')
+op.add_option('--desc',        dest='desc')
+op.add_option('--code',        dest='code')
+op.add_option('--data',        dest='data')
+op.add_option('--delay',       dest='delay')
+
+(opt, args) = op.parse_args()
+
+if 'add_app' == opt.cmd:
+    method   = 'POST'
+    resource = 'applications'
+    args     = dict(appname=opt.appname,
+                    desc=open(opt.desc).read())
+elif 'add_worker' == opt.cmd:
+    method   = 'POST'
+    resource = 'workers'
+    args     = dict(appname=opt.appname,
+                    authkey=opt.authkey, 
+                    worker=dict(input=open(opt.input).read()))
+    if opt.workername:
+        args['worker']['workername'] = opt.workername
+elif 'send_msg' == opt.cmd:
+    method   = 'POST'
+    resource = 'messages'
+    args     = dict(msg=dict(workername=opt.workername,
+                             code=opt.code),
+                    appname=opt.appname,
+                    authkey=opt.authkey)
+    if opt.pool:
+        args['msg']['pool'] = opt.pool
+    if opt.data:
+        args['msg']['data'] = open(opt.data).read()
+    if opt.delay:
+        args['msg']['delay'] = int(opt.delay)
+
+status, reason, response = http_client(method, resource, args)
+
+print('{0} {1}'.format(status, reason))
+print(json.dumps(response, indent=4))

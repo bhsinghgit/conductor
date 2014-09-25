@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+import os
+import sys
+import time
+import json
+import httplib
+
+def http_client(method, resource, args):
+    conn.request(method, resource, json.dumps(args))
+    response = conn.getresponse()
+
+    try:
+        body = json.loads(response.read())
+    except ValueError:
+        body = None
+    return response.status, response.reason, body
+
+def next_message():
+    status, reason, body = http_client('POST', 'lockmessage', app)
+    if (200 == status) and ('NOT_FOUND' != body):
+        return body
+    return None
+
+def commit(msg, code, result):
+    http_client('POST', 'commit',
+       dict(commit=dict(output=json.dumps(result['status']),
+                        tmp=json.dumps(result.get('state')),
+                        retcode=code,
+                        msgid=msg['msgid'],
+                        pool=result.get('pool', msg['pool']),
+                        sleep=result.get('sleep'),
+                        workername=msg['workername']),
+            appname=app['appname'],
+            authkey=app['authkey']))
+
+def update(msg, result):
+    http_client('POST', 'update',
+       dict(commit=dict(output=json.dumps(result['status']),
+                        tmp=json.dumps(result.get('state')),
+                        workername=msg['workername']),
+            appname=app['appname'],
+            authkey=app['authkey']))
+
+app  = json.load(open('{0}.key'.format(os.getuid())))
+conn = httplib.HTTPConnection(app['api'].split('/')[2])
+
+sys.path.append(app['virtualenv'])
+import worker
+
+while True:
+    msg = next_message()
+    if msg is None:
+        break
+
+    input = json.loads(msg['input'])
+    tmp   = json.loads(msg['tmp'])
+    event = dict(code=msg['code'], data=msg['data'])
+
+    while True:
+        code, result = worker.worker(input, tmp, event)
+        if 'UPDATE' == code:
+            update(msg, result)
+            tmp   = result['state']
+            event = dict(code='__updated__')
+        else:
+            break
+
+    commit(msg, code, result)
