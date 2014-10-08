@@ -51,7 +51,8 @@ while True:
                 fd = os.open(uid + '.key', os.O_CREAT|os.O_WRONLY, 0600)
                 os.write(fd, json.dumps(dict(appname=app['appname'],
                                              authkey=app['authkey'],
-                                             virtualenv=app['virtualenv'],
+                                             path=app['path'],
+                                             type=app['type'],
                                              api=app['api']), indent=4))
                 os.close(fd)
                 os.chown('{0}.key'.format(uid), int(uid), int(uid))
@@ -61,13 +62,14 @@ while True:
                 os.setuid(int(uid))
 
                 if 'worker' == app['type']:
-                    command   = os.path.join(app['virtualenv'], 'bin', 'python')
+                    command   = os.path.join(app['path'], 'bin', 'python')
                     dirname   = os.path.dirname(sys.argv[0])
                     launcher  = os.path.join(dirname, 'launcher')
                     arguments = [command, launcher]
                 elif 'daemon' == app['type']:
                     pass
 
+                print(command)
                 os.execv(command, arguments)
             else:
                 count += 1

@@ -1,5 +1,6 @@
 import flask
 import json
+import base64
 import functools
 import hashlib
 import uuid
@@ -43,7 +44,7 @@ def validate_request():
     if 'appname' not in req:
         raise Exception('appname missing')
 
-    row = query("""select appid, authkey, state, description
+    row = query("""select appid, authkey, state
                    from applications
                    where appname=%s and state='active'
                 """,
@@ -58,9 +59,7 @@ def validate_request():
     if req['authkey'] != row[0][1]:
         raise Exception('key mismatch')
 
-    req.update(dict(appid=row[0][0],
-                    desc=json.loads(row[0][3]),
-                    agent_ip=flask.request.remote_addr))
+    req.update(dict(appid=row[0][0], agent_ip=flask.request.remote_addr))
 
     return req
 
@@ -68,28 +67,57 @@ def validate_request():
 @transaction
 def add_app():
     req  = json.loads(flask.request.data)
-    desc = json.dumps(json.loads(req['desc']))
     key  = guid()
   
     query("""insert into applications
-             set appname=%s, authkey=%s, state='active', description=%s
+             set appname=%s, authkey=%s, state='active', type=%s, path=%s
           """,
-          (req['appname'], key, desc))
+          (req['appname'], key, req['app']['type'], req['app']['path']))
 
     return dict(authkey=key)
+
+@app.route('/hosts', methods=['POST'])
+@transaction
+def add_ip():
+    req = validate_request()
+  
+    query("""insert into hosts set appid=%s, ip=%s, count=%s""",
+          (req['appid'], req['host']['ip'], req['host']['count']))
+
+    return "OK"
+
+@app.route('/pools', methods=['POST'])
+@transaction
+def add_pool():
+    req = validate_request()
+  
+    query("""insert into pools set appid=%s, pool=%s, ip=%s""",
+          (req['appid'], req['pool']['pool'], req['pool']['ip']))
+
+    return "OK"
 
 @app.route('/applications', methods=['GET'])
 @transaction
 def get_apps():
-    sql = """select appid, appname, authkey, description
+    sql = """select appid, appname, authkey, type, path
              from applications
              where state='active'
           """
     ret = dict()
-    for appid, appname, authkey, description in query(sql):
-        ret[appid] = json.loads(description)
-        ret[appid]['appname'] = appname
-        ret[appid]['authkey'] = authkey
+    for appid, appname, authkey, type, path in query(sql):
+        hosts = query("select ip, count from hosts where appid=%s", (appid))
+        pools = query("select pool, ip from pools where appid=%s", (appid))
+
+        pool_dict = dict()
+        for pool, ip in pools:
+            pool_dict.setdefault(pool, list()).append(ip)
+
+        ret[appid] = dict(appname=appname,
+                          authkey=authkey,
+                          type=type,
+                          path=path,
+                          hosts=dict([(h[0], h[1]) for h in hosts]),
+                          pools=pool_dict)
     return ret
 
 @app.route('/workers', methods=['POST'])
@@ -103,9 +131,10 @@ def add_worker():
     query("""delete from messages where appid=%s and workername=%s""",
           (req['appid'], workername))
     query("""insert into workers
-             set workername=%s, appid=%s, state='active', input=%s, tmp='{}'
+             set workername=%s, appid=%s, state='active',
+             input=%s, continuation=%s
           """,
-          (workername, req['appid'], input))
+          (workername, req['appid'], input, base64.b64encode('')))
 
     return dict(workername=workername)
 
@@ -125,9 +154,10 @@ def add_msg():
     req = validate_request()
     msg = req['msg']
 
-    pool  = msg.get('pool', 'default')
-    data  = msg.get('data', None)
-    delay = msg.get('delay', 0)
+    pool     = msg.get('pool', 'default')
+    priority = msg.get('priority', 128)
+    data     = msg.get('data', None)
+    delay    = msg.get('delay', 0)
 
     appid = query("""select appid from workers
                      where workername=%s and state != 'done'
@@ -140,9 +170,10 @@ def add_msg():
 
     query("""insert into messages
              set workername=%s, appid=%s, pool=%s, state='queued',
-                 code=%s, data=%s, timestamp=now()+interval %s second
+                 priority=%s, code=%s, data=%s,
+                 timestamp=now()+interval %s second
           """,
-          (msg['workername'], appid, pool, msg['code'], data, delay))
+          (msg['workername'], appid, pool, priority, msg['code'], data, delay))
 
     mark_head(appid, msg['workername'])
 
@@ -153,23 +184,12 @@ def add_msg():
 def get_msgs():
     sql = """select appid, pool, count(*) as count
              from messages
-             where timestamp < now() and state='head'
+             where timestamp < now() and state='head' and lock_ip is null
              group by appid, pool"""
     ret = dict()
     for appid, pool, count in query(sql):
         ret.setdefault(appid, dict())[pool] = count
     return ret
-
-@app.route('/update', methods=['POST'])
-@transaction
-def update():
-    req = validate_request()
-    com = req['commit']
-
-    query("update workers set output=%s, tmp=%s where workername=%s",
-          (com['output'], com['tmp'], com['workername']))
-
-    return "OK"
 
 @app.route('/commit', methods=['POST'])
 @transaction
@@ -177,29 +197,34 @@ def commit():
     req = validate_request()
     com = req['commit']
 
+    pool = query("select pool from messages where msgid=%s", (com['msgid']))
     query("delete from messages where msgid=%s", (com['msgid']))
 
-    if 'SLEEP' == com['retcode']:
+    if 'state' not in com:
+        query("""delete from messages where appid=%s and workername=%s""",
+              (req['appid'], com['workername']))
+        query("""update workers set status=%s, continuation=null, state='done'
+                 where workername=%s
+              """,
+              (com['status'], com['workername']))
+        return "OK"
+
+    if 'alarm' in com:
+        if int(com['alarm']) < 1:
+            com['alarm'] = 1
+
         query("""delete from messages
-                 where appid=%s and workername=%s and code='ALARM'
+                 where appid=%s and workername=%s and code='alarm'
               """,
               (req['appid'], com['workername']))
         query("""insert into messages
                  set workername=%s, appid=%s, pool=%s, state='queued',
                      code=%s, timestamp=now()+interval %s second""",
-              (com['workername'], req['appid'], com['pool'],
-               'ALARM', com['sleep']))
+              (com['workername'], req['appid'], com.get('pool', pool[0][0]),
+               'alarm', com['alarm']))
 
-    if 'DONE' == com['retcode']:
-        query("""delete from messages where appid=%s and workername=%s""",
-              (req['appid'], com['workername']))
-        query("""update workers set output=%s, tmp=null, state='done'
-                 where workername=%s
-              """,
-              (com['output'], com['workername']))
-    else:
-        query("update workers set output=%s, tmp=%s where workername=%s",
-              (com['output'], com['tmp'], com['workername']))
+    query("update workers set status=%s, continuation=%s where workername=%s",
+          (com['status'], com['continuation'], com['workername']))
 
     mark_head(req['appid'], com['workername'])
 
@@ -208,32 +233,42 @@ def commit():
 @app.route('/lockmessage', methods=['POST'])
 @transaction
 def lockmessage():
-    sql2 = """select msgid, workername, code, data from messages
+    sql1 = """select msgid, workername, code, data from messages
               where timestamp < now() and state='head' and
                     appid=%s and pool=%s and lock_ip is null
-              limit 1
+              order by priority limit 1
            """
-    sql3 = """update messages set lock_ip=%s where msgid=%s"""
-    sql4 = """select input, tmp from workers where workername=%s"""
+    sql2 = """update messages set lock_ip=%s where msgid=%s"""
+    sql3 = """select input, continuation from workers where workername=%s"""
 
-    req = validate_request()
+    req   = validate_request()
+    appid = req['appid']
 
-    req['desc']['pools']['default'] = req['desc']['hosts'].keys()
+    hosts = dict([(r[0], r[1]) for r in
+                  query("select ip, count from hosts where appid=%s", (appid))])
 
-    for pool, ip_list in req['desc']['pools'].iteritems():
+    pools = dict()
+    for pool, ip in query("select pool, ip from pools where appid=%s", (appid)):
+        pools.setdefault(pool, list()).append(ip)
+
+    pools['default'] = hosts.keys()
+
+    for pool, ip_list in pools.iteritems():
         for ip in set(ip_list):
-            rows = query(sql2, (req['appid'], pool))
+            rows = query(sql1, (req['appid'], pool))
             if len(rows) > 0:
                 msgid, workername, code, data = rows[0]
-                query(sql3, (req['agent_ip'], msgid))
-                input, tmp = query(sql4, (workername))[0]
-                return dict(msgid       = msgid,
-                            workername  = workername,
-                            code        = code,
-                            data        = data,
-                            pool        = pool,
-                            input       = input,
-                            tmp         = tmp)
+                query(sql2, (req['agent_ip'], msgid))
+
+                input, continuation = query(sql3, (workername))[0]
+                return dict(msgid        = msgid,
+                            workername   = workername,
+                            input        = input,
+                            continuation = continuation,
+                            code         = code,
+                            data         = data,
+                            pool         = pool)
+
     return "NOT_FOUND"
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import json
+import base64
 import httplib
 
 def http_client(method, resource, args):
@@ -13,56 +14,39 @@ def http_client(method, resource, args):
         body = json.loads(response.read())
     except ValueError:
         body = None
+
+    print((resource, response.status, response.reason, body))
     return response.status, response.reason, body
-
-def next_message():
-    status, reason, body = http_client('POST', 'lockmessage', app)
-    if (200 == status) and ('NOT_FOUND' != body):
-        return body
-    return None
-
-def commit(msg, code, result):
-    http_client('POST', 'commit',
-       dict(commit=dict(output=json.dumps(result['status']),
-                        tmp=json.dumps(result.get('state')),
-                        retcode=code,
-                        msgid=msg['msgid'],
-                        pool=result.get('pool', msg['pool']),
-                        sleep=result.get('sleep'),
-                        workername=msg['workername']),
-            appname=app['appname'],
-            authkey=app['authkey']))
-
-def update(msg, result):
-    http_client('POST', 'update',
-       dict(commit=dict(output=json.dumps(result['status']),
-                        tmp=json.dumps(result.get('state')),
-                        workername=msg['workername']),
-            appname=app['appname'],
-            authkey=app['authkey']))
 
 app  = json.load(open('{0}.key'.format(os.getuid())))
 conn = httplib.HTTPConnection(app['api'].split('/')[2])
 
-sys.path.append(app['virtualenv'])
+sys.path.append(app['path'])
 import worker
 
 while True:
-    msg = next_message()
-    if msg is None:
+    status, reason, msg = http_client('POST', 'lockmessage', app)
+    if (200 != status) or ('NOT_FOUND' == msg):
         break
 
-    input = json.loads(msg['input'])
-    tmp   = json.loads(msg['tmp'])
     event = dict(code=msg['code'], data=msg['data'])
 
-    while True:
-        code, result = worker.worker(input, tmp, event)
-        if 'UPDATE' == code:
-            update(msg, result)
-            tmp   = result['state']
-            event = dict(code='__updated__')
-        else:
-            break
+    result = worker.worker(base64.b64decode(msg['input']),
+                           base64.b64decode(msg['continuation']),
+                           event)
 
-    commit(msg, code, result)
+    if result is None:
+        result = dict(status='worker crashed')
+
+    if 'status' in result:
+        result['status'] = base64.b64encode(result['status'])
+
+    if 'state' in result:
+        result['continuation'] = base64.b64encode(result['state'])
+
+    result['msgid']      = msg['msgid']
+    result['workername'] = msg['workername']
+
+    http_client('POST', 'commit', dict(commit=result,
+                                       appname=app['appname'],
+                                       authkey=app['authkey']))

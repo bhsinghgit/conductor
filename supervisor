@@ -148,8 +148,8 @@ while True:
         for uid in allocation[ip]:
             apps[uid]['count'] = allocation[ip][uid]
             apps[uid]['api']   = conf['api']
-            del(apps[uid]['hosts'])
-            del(apps[uid]['pools'])
+            apps[uid].pop('hosts')
+            apps[uid].pop('pools', None)
             request_msg[uid] = apps[uid]
 
         context[sock]['bytes'] = json.dumps(request_msg)

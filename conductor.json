@@ -1,0 +1,10 @@
+{
+    "api_host": "127.0.0.1",
+    "api_port": 5000,
+
+    "supervisor_host": "127.0.0.1",
+    "supervisor_port": 6000,
+
+    "appname": "testapp",
+    "authkey": "58fe53c8451742b8284c3aafe4a096ce"
+}
