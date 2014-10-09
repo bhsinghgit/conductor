@@ -25,6 +25,14 @@ create table pools(
     primary key(appid, pool, ip)
 ) engine=innodb;
 
+create table locks(
+    sequence   bigint unsigned primary key auto_increment,
+    lockname   char(64) not null,
+    appid      int unsigned not null,
+    workername char(64) not null,
+    unique(lockname, appid, workername)
+) engine=innodb;
+
 create table workers(
     workername   char(64)     primary key,
     appid        int unsigned not null,

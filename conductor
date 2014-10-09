@@ -94,7 +94,7 @@ elif 'test' == opt.cmd:
     add_app('worker', '/tmp/conductor')
     add_host('127.0.0.1', opt.count)
     add_pool('localhost', '127.0.0.1')
-    for i in range(opt.workercount):
+    for i in range(int(opt.workercount)):
         add_worker('Some test string')
     exit(0)
 

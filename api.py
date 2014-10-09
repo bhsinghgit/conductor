@@ -94,6 +94,7 @@ def delete_app():
     query("delete from applications where appid=%s", (req['appid']))
     query("delete from hosts        where appid=%s", (req['appid']))
     query("delete from pools        where appid=%s", (req['appid']))
+    query("delete from locks        where appid=%s", (req['appid']))
     query("delete from workers      where appid=%s", (req['appid']))
     query("delete from messages     where appid=%s", (req['appid']))
 
@@ -230,6 +231,8 @@ def commit():
     pool = query("select pool from messages where msgid=%s", (com['msgid']))
     query("delete from messages where msgid=%s", (com['msgid']))
 
+    pool = com.get('pool', pool[0][0])
+
     if 'state' not in com:
         query("""delete from messages where appid=%s and workername=%s""",
               (req['appid'], com['workername']))
@@ -239,19 +242,56 @@ def commit():
               (com['status'], com['workername']))
         return "OK"
 
+    query("""delete from messages
+             where appid=%s and workername=%s and code='alarm'
+          """,
+          (req['appid'], com['workername']))
+
+    if 'lock' in com:
+        query("""insert into locks set lockname=%s, appid=%s, workername=%s""",
+                 (com['lock'], req['appid'], com['workername']))
+        row = query("""select workername
+                       from locks
+                       where lockname=%s
+                       order by sequence limit 1
+                    """,
+                    (com['lock']))
+        if (1 == len(row)) and (row[0][0] == com['workername']):
+            query("""insert into messages
+                     set workername=%s, appid=%s, pool=%s, state='queued',
+                         code='locked'""",
+                  (com['workername'], req['appid'], pool))
+
+    if 'unlock' in com:
+        row = query("""select appid, workername
+                       from locks
+                       where lockname=%s
+                       order by sequence limit 2
+                    """,
+                    (com['unlock']))
+        if (len(row) > 0) and (row[0][1] == com['workername']):
+            query("""delete from locks
+                     where lockname=%s and appid=%s and workername=%s
+                  """,
+                 (com['unlock'], row[0][0], row[0][1]))
+
+            if len(row) > 1:
+                query("""insert into messages
+                         set workername=%s, appid=%s,
+                             pool='default',state='queued',
+                             code='locked'""",
+                      (row[1][1], row[1][0]))
+                mark_head(row[1][0], row[1][1])
+
+
     if 'alarm' in com:
         if int(com['alarm']) < 1:
             com['alarm'] = 1
 
-        query("""delete from messages
-                 where appid=%s and workername=%s and code='alarm'
-              """,
-              (req['appid'], com['workername']))
         query("""insert into messages
                  set workername=%s, appid=%s, pool=%s, state='queued',
-                     code=%s, timestamp=now()+interval %s second""",
-              (com['workername'], req['appid'], com.get('pool', pool[0][0]),
-               'alarm', com['alarm']))
+                     code='alarm', timestamp=now()+interval %s second""",
+              (com['workername'], req['appid'], pool, com['alarm']))
 
     query("update workers set status=%s, continuation=%s where workername=%s",
           (com['status'], com['continuation'], com['workername']))
