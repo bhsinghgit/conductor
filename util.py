@@ -27,7 +27,7 @@ def initialize(id):
     else:
         lock = os.open('{0}.lock'.format(id), os.O_CREAT|os.O_RDONLY, 0444)
         fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
-        with open('{0}.json'.format(id)) as fd:
+        with open('conductor.json'.format(id)) as fd:
             return log, json.load(fd), lock
 
 def remove_old_logs():

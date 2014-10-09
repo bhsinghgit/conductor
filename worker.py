@@ -14,4 +14,4 @@ def worker(input, state, event):
         state['seq'] += 1
         return dict(status='received init',
                     state=json.dumps(state),
-                    alarm=5)
+                    alarm=0)

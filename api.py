@@ -8,7 +8,11 @@ import time
 import MySQLdb
 
 app       = flask.Flask(__name__)
-db_conn   = MySQLdb.connect('localhost', 'root', '', 'conductor')
+conf      = json.loads(open('conductor.json').read())
+db_conn   = MySQLdb.connect(conf['mysql_host'],
+                            conf['mysql_user'],
+                            conf['mysql_password'],
+                            conf['mysql_db'])
 db_cursor = db_conn.cursor()
 
 def transaction(f):
@@ -59,22 +63,41 @@ def validate_request():
     if req['authkey'] != row[0][1]:
         raise Exception('key mismatch')
 
-    req.update(dict(appid=row[0][0], agent_ip=flask.request.remote_addr))
+    req.update(dict(appid=row[0][0], client_ip=flask.request.remote_addr))
 
     return req
 
 @app.route('/applications', methods=['POST'])
 @transaction
 def add_app():
-    req  = json.loads(flask.request.data)
-    key  = guid()
-  
+    req = json.loads(flask.request.data)
+    app = req['app']
+
+    if '127.0.0.1' != flask.request.remote_addr:
+        raise Exception('operation not allowed from remote machine')
+
     query("""insert into applications
              set appname=%s, authkey=%s, state='active', type=%s, path=%s
           """,
-          (req['appname'], key, req['app']['type'], req['app']['path']))
+          (req['appname'], req['authkey'], app['type'], app['path']))
 
-    return dict(authkey=key)
+    return "OK"
+
+@app.route('/applications', methods=['DELETE'])
+@transaction
+def delete_app():
+    req = validate_request()
+
+    if '127.0.0.1' != req['client_ip']:
+        raise Exception('operation not allowed from remote machine')
+
+    query("delete from applications where appid=%s", (req['appid']))
+    query("delete from hosts        where appid=%s", (req['appid']))
+    query("delete from pools        where appid=%s", (req['appid']))
+    query("delete from workers      where appid=%s", (req['appid']))
+    query("delete from messages     where appid=%s", (req['appid']))
+
+    return "OK"
 
 @app.route('/hosts', methods=['POST'])
 @transaction
@@ -123,10 +146,12 @@ def get_apps():
 @app.route('/workers', methods=['POST'])
 @transaction
 def add_worker():
-    req = validate_request()
+    req    = validate_request()
+    worker = req['worker']
 
-    workername = req['worker'].get('workername', guid())
-    input      = req['worker']['input']
+    workername = worker.get('workername', guid())
+    pool       = worker.get('pool', 'default')
+    priority   = worker.get('priority', 128)
 
     query("""delete from messages where appid=%s and workername=%s""",
           (req['appid'], workername))
@@ -134,7 +159,12 @@ def add_worker():
              set workername=%s, appid=%s, state='active',
              input=%s, continuation=%s
           """,
-          (workername, req['appid'], input, base64.b64encode('')))
+          (workername, req['appid'], worker['input'], base64.b64encode('')))
+    query("""insert into messages
+             set workername=%s, appid=%s, pool=%s, state='head',
+                 priority=%s, code='init'
+          """,
+          (workername, req['appid'], pool, priority))
 
     return dict(workername=workername)
 
@@ -258,7 +288,7 @@ def lockmessage():
             rows = query(sql1, (req['appid'], pool))
             if len(rows) > 0:
                 msgid, workername, code, data = rows[0]
-                query(sql2, (req['agent_ip'], msgid))
+                query(sql2, (req['client_ip'], msgid))
 
                 input, continuation = query(sql3, (workername))[0]
                 return dict(msgid        = msgid,

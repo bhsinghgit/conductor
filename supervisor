@@ -12,11 +12,14 @@ util.remove_old_logs()
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-listener.bind(('', conf['port']))
+listener.bind(('', conf['supervisor_port']))
 listener.listen(5)
 listener.setblocking(0)
 log('listening on {0}'.format(listener.getsockname()))
 
+def http_get(resource):
+    return json.loads(urllib.urlopen( 'http://{0}:{1}/{2}'.format(
+        conf['api_host'], conf['api_port'],resource)).read())
 
 def disconnect(sock):
     addr = context[sock]['remote']
@@ -103,8 +106,8 @@ while True:
         continue
 
     try:
-        apps = json.loads(urllib.urlopen(conf['api'] + '/applications').read())
-        msgs = json.loads(urllib.urlopen(conf['api'] + '/messages').read())
+        apps = http_get('applications')
+        msgs = http_get('messages')
     except Exception as e:
         log('Could not access api : {0}'.format(str(e)))
         continue
@@ -146,8 +149,9 @@ while True:
 
         request_msg = dict()
         for uid in allocation[ip]:
-            apps[uid]['count'] = allocation[ip][uid]
-            apps[uid]['api']   = conf['api']
+            apps[uid]['count']    = allocation[ip][uid]
+            apps[uid]['api_host'] = conf['api_host']
+            apps[uid]['api_port'] = conf['api_port']
             apps[uid].pop('hosts')
             apps[uid].pop('pools', None)
             request_msg[uid] = apps[uid]
