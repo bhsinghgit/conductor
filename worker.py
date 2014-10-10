@@ -1,61 +1,55 @@
 import json
-import os
-
-def locktest(input):
-    index = ('%010d' % (input['worker']))[9]
-
-    fd = os.open('/tmp/locktest.' + index, os.O_CREAT|os.O_RDWR)
-
-    raw  = os.read(fd, 1000000)
-
-    if (raw is None) or ('' == raw):
-        obj = dict(total=0, workers=list(), guid=input['guid'])
-        os.ftruncate(fd, 0)
-    else:
-        obj = json.loads(raw)
-        if ('guid' not in obj) or (input['guid'] != obj['guid']):
-            obj = dict(total=0, workers=list(), guid=input['guid'])
-            os.ftruncate(fd, 0)
-
-    obj['total'] += 1
-    obj['workers'].append(input['worker'])
-
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
+import workflow
 
 def worker(input, state, event):
+    print('here')
     input = json.loads(input)
-    index = ('%010d' % (input['worker']))[9]
 
     if 'init' == event['code']:
-        return dict(status='received init',
-                    state=json.dumps(dict(seq=0)),
-                    alarm=-1)
+        control_info = dict(state='init', seq=0)
+        continuation  = None
+    else:
+        state = json.loads(state)
+        control_info = state['control_info']
+        continuation = state['continuation']
+        control_info['seq'] += 1
 
-    state = json.loads(state)
-    state['seq'] += 1
+    try:
+        method = getattr(workflow, control_info['state'])
+        result = method(input, continuation, event)
+    except Exception as e:
+        result = ('done', 'exception: ' + str(e), dict())
 
-    if 1 == state['seq']:
-        return dict(status='alarm',
-                    state=json.dumps(state),
-                    lock='locktest-' + index)
+    state_tuple = (control_info['state'], result[0])
+    if state_tuple in workflow.workflow:
+        control_info['state'] = workflow.workflow[state_tuple]
+    else:
+        result = ('done', 'next state not found', dict())
 
-    if (2 == state['seq']) and ('locked' == event['code']):
-        locktest(input)
-        return dict(status='alarm',
-                    state=json.dumps(state),
-                    alarm=3)
+    commit_status = json.dumps(result[1])
+    commit_state  = json.dumps(dict(control_info=control_info,
+                                    continuation=result[2]))
 
-    if 3 == state['seq']:
-        return dict(status='alarm',
-                    state=json.dumps(state),
-                    unlock='locktest-' + index,
+    if 'ok' == result[0]:
+        return dict(status=commit_status,
+                    state=commit_state,
                     alarm=0)
-    
-    if 'alarm' == event['code']:
-        if state['seq'] < 5:
-            return dict(status='alarm',
-                        state=json.dumps(state),
-                        alarm=1)
-        else:
-            return dict(status='done')
+
+    if 'lock' == result[0]:
+        return dict(status=commit_status,
+                    state=commit_state,
+                    lock=result[3])
+
+    if 'unlock' == result[0]:
+        return dict(status=commit_status,
+                    state=commit_state,
+                    unlock=result[3],
+                    alarm=0)
+
+    if 'retry' == result[0]:
+        return dict(status=commit_status,
+                    state=commit_state,
+                    alarm=result[3])
+
+    if 'done' == result[0]:
+        return dict(status=commit_status)

@@ -286,7 +286,7 @@ def commit():
 
     if 'alarm' in com:
         if int(com['alarm']) < 1:
-            com['alarm'] = 1
+            com['alarm'] = 0
 
         query("""insert into messages
                  set workername=%s, appid=%s, pool=%s, state='queued',
