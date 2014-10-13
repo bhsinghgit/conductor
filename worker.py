@@ -1,8 +1,6 @@
 import json
-import workflow
 
 def worker(input, state, event):
-    print('here')
     input = json.loads(input)
 
     if 'init' == event['code']:
@@ -15,25 +13,24 @@ def worker(input, state, event):
         control_info['seq'] += 1
 
     try:
-        method = getattr(workflow, control_info['state'])
-        result = method(input, continuation, event)
+        module = __import__(input['workflow'])
+        method = getattr(module, control_info['state'])
+        result = method(input['input'], continuation)
     except Exception as e:
-        result = ('done', 'exception: ' + str(e), dict())
+        return dict(status=json.dumps('exception: ' + str(e)))
+
+    if 1 == len(result):
+        return dict(status=json.dumps(result[0]))
 
     state_tuple = (control_info['state'], result[0])
-    if state_tuple in workflow.workflow:
-        control_info['state'] = workflow.workflow[state_tuple]
+    if state_tuple in module.workflow:
+        control_info['state'] = module.workflow[state_tuple]
     else:
-        result = ('done', 'next state not found', dict())
+        return dict(status=json.dumps('next state not found'))
 
     commit_status = json.dumps(result[1])
     commit_state  = json.dumps(dict(control_info=control_info,
                                     continuation=result[2]))
-
-    if 'ok' == result[0]:
-        return dict(status=commit_status,
-                    state=commit_state,
-                    alarm=0)
 
     if 'lock' == result[0]:
         return dict(status=commit_status,
@@ -51,5 +48,6 @@ def worker(input, state, event):
                     state=commit_state,
                     alarm=result[3])
 
-    if 'done' == result[0]:
-        return dict(status=commit_status)
+    return dict(status=commit_status,
+                state=commit_state,
+                alarm=0)

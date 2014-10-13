@@ -92,12 +92,13 @@ elif 'send_msg' == opt.cmd:
     print_result(send_msg(opt.workername, opt.code,opt.data,opt.pool,opt.delay))
 elif 'test' == opt.cmd:
     del_app()
-    add_app('worker', '/tmp/conductor')
+    add_app('worker', '/usr/bin/python')
     add_host('127.0.0.1', opt.count)
     add_pool('localhost', '127.0.0.1')
     guid = str(uuid.uuid4())
     for i in range(int(opt.workercount)):
-        add_worker(json.dumps(dict(worker=i, guid=guid)))
+        add_worker(json.dumps(dict(workflow='TestWorkflow',
+                                   input=dict(worker=i, guid=guid))))
     exit(0)
 
 print('invalid command')
