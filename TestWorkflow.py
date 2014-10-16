@@ -12,7 +12,7 @@ def get_lock(input, state, util):
 
     index = ('%010d' % (input['worker']))[9]
 
-    return ('lock', 'waiting for lock', state, 'locktest-{0}'.format(index))
+    return ('lock', 'waiting for lock', state, ['locktest-{0}'.format(index), 'a'])
 
 def modify_file(input, state, util):
     state['seq'] += 1
@@ -39,7 +39,7 @@ def modify_file(input, state, util):
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
 
-    return ('unlock', 'file modified', state, 'locktest-{0}'.format(index))
+    return ('unlock', 'file modified', state, ['locktest-{0}'.format(index), 'a'])
 
 def loop(input, state, util):
     state['seq'] += 1

@@ -257,42 +257,63 @@ def commit():
           """,
           (req['appid'], com['workername']))
 
+    def insert_message(appid, workername, pool, code):
+        query("""insert into messages
+                 set workername=%s, appid=%s,
+                 pool=%s, state='queued', code=%s
+              """, (workername, appid, pool, code))
+
+    def get_lock_holder(lockname):
+        row = query("""select appid, workername from locks
+                       where lockname=%s order by sequence limit 1
+                    """, (lockname))
+        if len(row) < 1:
+            return None, None
+        else:
+            return row[0][0], row[0][1]
+
     if 'lock' in com:
-        query("""insert into locks set lockname=%s, appid=%s, workername=%s""",
-                 (com['lock'], req['appid'], com['workername']))
-        row = query("""select workername
-                       from locks
-                       where lockname=%s
-                       order by sequence limit 1
-                    """,
-                    (com['lock']))
-        if (1 == len(row)) and (row[0][0] == com['workername']):
-            query("""insert into messages
-                     set workername=%s, appid=%s, pool=%s, state='queued',
-                         code='locked'""",
-                  (com['workername'], req['appid'], pool))
+        for lockname in set(com['lock']):
+            query("insert into locks set lockname=%s, appid=%s, workername=%s",
+                 (lockname, req['appid'], com['workername']))
+
+        counter = 0
+        for lockname in set(com['lock']):
+            row = query("""select workername from locks
+                           where lockname=%s order by sequence limit 1
+                        """, (lockname))
+
+            if row[0][0] == com['workername']:
+                counter += 1
+
+        if len(set(com['lock'])) == counter:
+            insert_message(req['appid'], com['workername'], pool, 'locked')
 
     if 'unlock' in com:
-        row = query("""select appid, workername
-                       from locks
-                       where lockname=%s
-                       order by sequence limit 2
-                    """,
-                    (com['unlock']))
-        if (len(row) > 0) and (row[0][1] == com['workername']):
+        for lockname in set(com['unlock']):
             query("""delete from locks
                      where lockname=%s and appid=%s and workername=%s
                   """,
-                 (com['unlock'], row[0][0], row[0][1]))
+                  (lockname, req['appid'], com['workername']))
 
-            if len(row) > 1:
-                query("""insert into messages
-                         set workername=%s, appid=%s,
-                             pool='default',state='queued',
-                             code='locked'""",
-                      (row[1][1], row[1][0]))
-                mark_head(row[1][0], row[1][1])
+        for lockname in set(com['unlock']):
+            other_appid, other_workername = get_lock_holder(lockname)
 
+            if other_workername:
+                locks = query("""select lockname from locks
+                                 where appid=%s and workername=%s
+                              """, (other_appid, other_workername))
+
+                counter = 0
+                for otherlock in locks:
+                    tmp_appid, tmp_workername = get_lock_holder(otherlock)
+                    if other_workername == tmp_workername:
+                        counter += 1
+
+                if len(locks) == counter:
+                    insert_message(other_appid, other_workername,
+                                   'default', 'locked')
+                    mark_head(other_appid, other_workername)
 
     if 'alarm' in com:
         if int(com['alarm']) < 1:

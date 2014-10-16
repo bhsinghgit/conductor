@@ -32,6 +32,7 @@ create table locks(
     workername char(64) not null,
     unique(lockname, appid, workername)
 ) engine=innodb;
+create index lock1 on locks(appid, workername, lockname);
 
 create table workers(
     workername   char(64)     primary key,
