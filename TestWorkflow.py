@@ -1,20 +1,20 @@
 import json
 import os
 
-def init(input, state):
+def init(input, state, util):
     return ('ok', 'initialized', dict(seq=0))
 
-def update(input, state, event):
+def update(input, state, event, util):
     return ('ok', 'message received', dict(seq=0))
 
-def get_lock(input, state):
+def get_lock(input, state, util):
     state['seq'] += 1
 
     index = ('%010d' % (input['worker']))[9]
 
     return ('lock', 'waiting for lock', state, 'locktest-{0}'.format(index))
 
-def modify_file(input, state):
+def modify_file(input, state, util):
     state['seq'] += 1
 
     index = ('%010d' % (input['worker']))[9]
@@ -34,19 +34,20 @@ def modify_file(input, state):
 
     obj['total'] += 1
     obj['workers'].append(input['worker'])
+    util.log('total : {0}'.format(obj['total']))
 
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
 
     return ('unlock', 'file modified', state, 'locktest-{0}'.format(index))
 
-def loop(input, state):
+def loop(input, state, util):
     state['seq'] += 1
 
     if state['seq'] < 5:
         return ('retry', 'waiting in the loop', state, 1)
 
-    return ('all done')
+    return ('ok', 'all done')
 
 workflow = {
     ('init',        'ok'):     'get_lock',

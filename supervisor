@@ -7,7 +7,13 @@ import select
 import urllib
 import util
 
-log, conf, lock  = util.initialize('supervisor')
+def log(msg):
+    util.log('supervisor', socket.gethostname(), 'log', msg)
+
+def blob(msg):
+    return util.blob('supervisor', socket.gethostname(), msg)
+
+conf, lock  = util.initialize('supervisor')
 util.remove_old_logs()
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -25,8 +31,7 @@ def disconnect(sock):
     addr = context[sock]['remote']
     omsg.pop(sock, None)
 
-    if sock == host2sock[context[sock]['remote'][0]]:
-        host2sock.pop(context[sock]['remote'][0])
+    host2sock.pop(addr[0])
 
     if sock in osock:
         osock.remove(sock)
@@ -36,7 +41,7 @@ def disconnect(sock):
 
     context.pop(sock)
     sock.close()
-    log('disconnected agent{0}'.format(addr))
+    log('agent disconnected from{0}'.format(addr))
 
 timestamp = 0
 host2sock = dict()
@@ -55,17 +60,15 @@ while True:
     for sock in rsock:
         if sock is listener:
             conn, addr = sock.accept()
-            log('agent connected from {0}'.format(addr))
-            context[conn] = dict(remote=addr)
 
             if addr[0] in host2sock:
-                log('disconncting duplicate agent from {0}'.format(addr))
-                disconnect(conn)
-                continue
-            else:
-                conn.setblocking(0)
-                host2sock[addr[0]] = conn
-                continue
+                disconnect(host2sock[addr[0]])
+
+            conn.setblocking(0)
+            context[conn] = dict(remote=addr)
+            host2sock[addr[0]] = conn
+            log('agent connected from{0}'.format(addr))
+            continue
 
         addr = context[sock]['remote']
 
@@ -88,6 +91,9 @@ while True:
             continue
          
     for sock in wsock:
+        if sock not in context:
+            continue
+
         ctx = context[sock]
         try:
             m = sock.send(ctx['bytes'])
@@ -138,7 +144,7 @@ while True:
                 if count == start_count:
                     break
 
-    log(json.dumps(allocation, indent=4))
+    blob(json.dumps(allocation, indent=4))
     for sock in context:
         if (sock in isock) or (sock in osock):
             continue 
@@ -149,6 +155,9 @@ while True:
 
         request_msg = dict()
         for uid in allocation[ip]:
+            if allocation[ip][uid] < 1:
+                continue
+
             apps[uid]['count']    = allocation[ip][uid]
             apps[uid]['api_host'] = conf['api_host']
             apps[uid]['api_port'] = conf['api_port']

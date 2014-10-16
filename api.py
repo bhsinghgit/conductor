@@ -106,7 +106,7 @@ def add_ip():
     req = validate_request()
   
     query("""insert into hosts set appid=%s, ip=%s, count=%s""",
-          (req['appid'], req['host']['ip'], req['host']['count']))
+          (req['appid'], req['client_ip'], req['host']['count']))
 
     return "OK"
 
@@ -116,7 +116,7 @@ def add_pool():
     req = validate_request()
   
     query("""insert into pools set appid=%s, pool=%s, ip=%s""",
-          (req['appid'], req['pool']['pool'], req['pool']['ip']))
+          (req['appid'], req['pool']['pool'], req['client_ip']))
 
     return "OK"
 
@@ -234,12 +234,22 @@ def commit():
     pool = com.get('pool', pool[0][0])
 
     if 'state' not in com:
+        if 'exception' in com:
+            workflow_status = com['exception']
+            workflow_state  = 'exception'
+        elif 'status' in com:
+            workflow_status = com['status']
+            workflow_state  = 'done'
+        else:
+            workflow_status = 'unknown'
+            workflow_state  = 'exception'
+
         query("""delete from messages where appid=%s and workername=%s""",
               (req['appid'], com['workername']))
-        query("""update workers set status=%s, continuation=null, state='done'
+        query("""update workers set status=%s, continuation=null, state=%s
                  where workername=%s
               """,
-              (com['status'], com['workername']))
+              (workflow_status, workflow_state, com['workername']))
         return "OK"
 
     query("""delete from messages

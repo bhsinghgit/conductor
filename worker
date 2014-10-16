@@ -5,21 +5,42 @@ import time
 import json
 import base64
 import httplib
+import util
+
+class Util():
+    def __init__(self, id, ip, tag):
+        self.id  = id
+        self.ip  = ip
+        self.tag = tag
+
+    def log(self, msg):
+        util.log(self.id, self.ip, self.tag, msg)
+
+    def blob(self, msg):
+        return util.blob(self.id, self.ip, msg)
 
 def http_client(method, resource, args):
-    conn.request(method, resource, json.dumps(args))
+    req = json.dumps(args)
+
+    conn.request(method, resource, req)
+
     response = conn.getresponse()
+    res      = response.read()
+
+    log.log('method({0}) resource({1}) status({2}) reason({3}) request({4}) response({5})'.format(
+        method, resource, response.status, response.reason,
+        log.blob(req), log.blob(res)))
 
     try:
-        body = json.loads(response.read())
+        body = json.loads(res)
     except ValueError:
         body = None
 
-    print((resource, response.status, response.reason, body))
     return response.status, response.reason, body
 
 app  = json.load(open('{0}.key'.format(os.getuid())))
 conn = httplib.HTTPConnection(app['api_host'] + ':' + str(app['api_port']))
+log  = Util('worker', app['ip_address'], 'log')
 
 sys.path.append(os.path.dirname(app['path']))
 import worker
@@ -33,7 +54,8 @@ while True:
 
     result = worker.worker(base64.b64decode(msg['input']),
                            base64.b64decode(msg['continuation']),
-                           event)
+                           event,
+                           Util(msg['workername'], app['ip_address'], 'user'))
 
     if result is None:
         result = dict(status='worker crashed')

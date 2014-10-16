@@ -1,6 +1,17 @@
 import json
 
-def worker(input, state, event):
+def worker(input, state, event, util):
+    def exception(msg):
+        util.log(
+            'state transition. current({0}) return({1}) exception({2})'.format(
+                current_state, result[0], msg))
+        return dict(exception=msg)
+
+    def commit(next, obj):
+        util.log('state transition. current({0}) return({1}) next({2})'.format(
+            current_state, result[0], next))
+        return obj
+
     input = json.loads(input)
 
     if 'init' == event['code']:
@@ -12,42 +23,50 @@ def worker(input, state, event):
         continuation = state['continuation']
         control_info['seq'] += 1
 
+    current_state = control_info['state']
+
     try:
         module = __import__(input['workflow'])
-        method = getattr(module, control_info['state'])
-        result = method(input['input'], continuation)
+        method = getattr(module, current_state)
+        result = method(input['input'], continuation, util)
     except Exception as e:
-        return dict(status=json.dumps('exception: ' + str(e)))
+        return exception(str(e))
 
-    if 1 == len(result):
-        return dict(status=json.dumps(result[0]))
+    if len(result) < 2:
+        return exception('invalid return value')
 
-    state_tuple = (control_info['state'], result[0])
-    if state_tuple in module.workflow:
-        control_info['state'] = module.workflow[state_tuple]
-    else:
-        return dict(status=json.dumps('next state not found'))
+    if 2 == len(result):
+        return commit('done', dict(status=json.dumps(result[1])))
 
+    if 'retry' != result[0]:
+        state_tuple = (control_info['state'], result[0])
+        if state_tuple in module.workflow:
+            control_info['state'] = module.workflow[state_tuple]
+        else:
+            return exception('next state not found')
+
+    next_state    = control_info['state']
     commit_status = json.dumps(result[1])
     commit_state  = json.dumps(dict(control_info=control_info,
                                     continuation=result[2]))
 
+
     if 'lock' == result[0]:
-        return dict(status=commit_status,
-                    state=commit_state,
-                    lock=result[3])
+        return commit(next_state, dict(status=commit_status,
+                                       state=commit_state,
+                                       lock=result[3]))
 
     if 'unlock' == result[0]:
-        return dict(status=commit_status,
-                    state=commit_state,
-                    unlock=result[3],
-                    alarm=0)
+        return commit(next_state, dict(status=commit_status,
+                                       state=commit_state,
+                                       unlock=result[3],
+                                       alarm=0))
 
     if 'retry' == result[0]:
-        return dict(status=commit_status,
-                    state=commit_state,
-                    alarm=result[3])
+        return commit(next_state, dict(status=commit_status,
+                                       state=commit_state,
+                                       alarm=result[3]))
 
-    return dict(status=commit_status,
-                state=commit_state,
-                alarm=0)
+    return commit(next_state, dict(status=commit_status,
+                                   state=commit_state,
+                                   alarm=0))

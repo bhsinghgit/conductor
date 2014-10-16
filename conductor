@@ -37,12 +37,12 @@ def add_app(type, path):
 def del_app():
     return http_delete('applications', conf)
 
-def add_host(ip, count):
-    conf['host'] = dict(ip=ip, count=count)
+def add_host(count):
+    conf['host'] = dict(count=count)
     return http_post('hosts', conf)
 
-def add_pool(pool, ip):
-    conf['pool'] = dict(pool=pool, ip=ip)
+def add_pool(pool):
+    conf['pool'] = dict(pool=pool)
     return http_post('pools', conf)
 
 def add_worker(input, workername=None):
@@ -69,7 +69,6 @@ op.add_option('--type',        dest='type')
 op.add_option('--path',        dest='path')
 op.add_option('--workername',  dest='workername')
 op.add_option('--pool',        dest='pool')
-op.add_option('--ip',          dest='ip')
 op.add_option('--count',       dest='count')
 
 op.add_option('--input',       dest='input')
@@ -83,9 +82,9 @@ op.add_option('--workercount', dest='workercount')
 if 'add_app' == opt.cmd:
     print_result(add_app(opt.type, opt.path))
 elif 'add_host' == opt.cmd:
-    print_result(add_host(opt.ip, opt.count))
+    print_result(add_host(opt.count))
 elif 'add_pool' == opt.cmd:
-    print_result(add_pool(opt.pool, opt.ip))
+    print_result(add_pool(opt.pool))
 elif 'add_worker' == opt.cmd:
     print_result(add_worker(open(opt.input).read(), opt.workername))
 elif 'send_msg' == opt.cmd:
@@ -93,8 +92,8 @@ elif 'send_msg' == opt.cmd:
 elif 'test' == opt.cmd:
     del_app()
     add_app('worker', '/usr/bin/python')
-    add_host('127.0.0.1', opt.count)
-    add_pool('localhost', '127.0.0.1')
+    add_host(opt.count)
+    add_pool('localhost')
     guid = str(uuid.uuid4())
     for i in range(int(opt.workercount)):
         add_worker(json.dumps(dict(workflow='TestWorkflow',
