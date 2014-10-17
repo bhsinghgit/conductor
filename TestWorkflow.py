@@ -31,10 +31,10 @@ def modify(guid, worker, filename, key):
 def init(input, state, util):
     index = ('%010d' % (input['worker']))[9]
 
-    state = dict(seq=0, index=index, random=list())
+    state = dict(seq=0, index=str(index), random=list())
 
     for i in range(5):
-        state['random'].append(random.randrange(input['count']))
+        state['random'].append(str(random.randrange(input['count'])))
 
     return ('ok', 'initialized', state)
 
@@ -45,8 +45,7 @@ def get_lock(input, state, util):
     state['seq'] += 1
 
     locks = list(state['index'])
-    for i in range(5):
-        locks.append(state['random'][i])
+    locks.extend(state['random'])
 
     return ('lock', 'waiting for lock', state,
             ['locktest-{0}'.format(l) for l in locks])
@@ -54,15 +53,14 @@ def get_lock(input, state, util):
 def locktest(input, state, util):
     state['seq'] += 1
 
-    locks = list(str(state['index']))
-    for i in range(5):
-        locks.append(str(state['random'][i]))
+    modify(input['guid'], input['worker'],
+           '/tmp/locktest.' + state['index'], 'main')
 
-    modify(input['guid'], input['worker'], '/tmp/locktest.' + locks[0], 'main')
+    locks = list(state['index'])
+    locks.extend(state['random'])
 
-    for l in locks[1:]:
+    for l in state['random']:
         modify(input['guid'], input['worker'], '/tmp/locktest.' + l, '')
-
 
     return ('unlock', 'file modified', state,
             ['locktest-{0}'.format(l) for l in locks])
