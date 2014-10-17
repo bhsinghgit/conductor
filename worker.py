@@ -26,6 +26,7 @@ def worker(input, state, event, util):
     current_state = control_info['state']
 
     try:
+        result = (None,)
         module = __import__(input['workflow'])
         method = getattr(module, current_state)
         result = method(input['input'], continuation, util)

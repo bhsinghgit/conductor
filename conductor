@@ -97,7 +97,9 @@ elif 'test' == opt.cmd:
     guid = str(uuid.uuid4())
     for i in range(int(opt.workercount)):
         add_worker(json.dumps(dict(workflow='TestWorkflow',
-                                   input=dict(worker=i, guid=guid))))
+                                   input=dict(worker=i,
+                                              count=int(opt.workercount),
+                                              guid=guid))))
     exit(0)
 
 print('invalid command')

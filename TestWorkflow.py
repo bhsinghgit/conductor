@@ -1,8 +1,42 @@
 import json
 import os
+import random
+
+def modify(guid, worker, filename, key):
+    obj = dict(guid=guid, total=0, workers=[], extraTotal=0, extraWorkers=[])
+
+    fd = os.open(filename, os.O_CREAT|os.O_RDWR)
+
+    raw  = os.read(fd, 1000000)
+
+    if (raw is None) or ('' == raw):
+        os.ftruncate(fd, 0)
+    else:
+        tmp = json.loads(raw)
+        if ('guid' not in tmp) or (guid != tmp['guid']):
+            os.ftruncate(fd, 0)
+        else:
+            obj = tmp
+
+    if 'main' == key:
+        obj['total'] += 1
+        obj['workers'].append(worker)
+    else:
+        obj['extraTotal'] += 1
+        obj['extraWorkers'].append(worker)
+
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
 
 def init(input, state, util):
-    return ('ok', 'initialized', dict(seq=0))
+    index = ('%010d' % (input['worker']))[9]
+
+    state = dict(seq=0, index=index, random=list())
+
+    for i in range(5):
+        state['random'].append(random.randrange(input['count']))
+
+    return ('ok', 'initialized', state)
 
 def update(input, state, event, util):
     return ('ok', 'message received', dict(seq=0))
@@ -10,36 +44,28 @@ def update(input, state, event, util):
 def get_lock(input, state, util):
     state['seq'] += 1
 
-    index = ('%010d' % (input['worker']))[9]
+    locks = list(state['index'])
+    for i in range(5):
+        locks.append(state['random'][i])
 
-    return ('lock', 'waiting for lock', state, ['locktest-{0}'.format(index), 'a'])
+    return ('lock', 'waiting for lock', state,
+            ['locktest-{0}'.format(l) for l in locks])
 
-def modify_file(input, state, util):
+def locktest(input, state, util):
     state['seq'] += 1
 
-    index = ('%010d' % (input['worker']))[9]
+    locks = list(str(state['index']))
+    for i in range(5):
+        locks.append(str(state['random'][i]))
 
-    fd = os.open('/tmp/locktest.' + index, os.O_CREAT|os.O_RDWR)
+    modify(input['guid'], input['worker'], '/tmp/locktest.' + locks[0], 'main')
 
-    raw  = os.read(fd, 1000000)
+    for l in locks[1:]:
+        modify(input['guid'], input['worker'], '/tmp/locktest.' + l, '')
 
-    if (raw is None) or ('' == raw):
-        obj = dict(total=0, workers=list(), guid=input['guid'])
-        os.ftruncate(fd, 0)
-    else:
-        obj = json.loads(raw)
-        if ('guid' not in obj) or (input['guid'] != obj['guid']):
-            obj = dict(total=0, workers=list(), guid=input['guid'])
-            os.ftruncate(fd, 0)
 
-    obj['total'] += 1
-    obj['workers'].append(input['worker'])
-    util.log('total : {0}'.format(obj['total']))
-
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
-
-    return ('unlock', 'file modified', state, ['locktest-{0}'.format(index), 'a'])
+    return ('unlock', 'file modified', state,
+            ['locktest-{0}'.format(l) for l in locks])
 
 def loop(input, state, util):
     state['seq'] += 1
@@ -50,7 +76,7 @@ def loop(input, state, util):
     return ('ok', 'all done')
 
 workflow = {
-    ('init',        'ok'):     'get_lock',
-    ('get_lock',    'lock'):   'modify_file',
-    ('modify_file', 'unlock'): 'loop'
+    ('init',     'ok'):     'get_lock',
+    ('get_lock', 'lock'):   'locktest',
+    ('locktest', 'unlock'): 'loop'
 }
