@@ -14,6 +14,9 @@ def worker(input, state, event, util):
 
     input = json.loads(input)
 
+    if 'data' in event:
+        event['data'] = json.loads(event['data'])
+
     if 'init' == event['code']:
         control_info = dict(state='init', seq=0)
         continuation  = None
@@ -29,7 +32,10 @@ def worker(input, state, event, util):
         result = (None,)
         module = __import__(input['workflow'])
         method = getattr(module, current_state)
-        result = method(input['input'], continuation, util)
+        if 'handler' == current_state:
+            result = method(input['input'], continuation, event, util)
+        else:
+            result = method(input['input'], continuation, util)
     except Exception as e:
         return exception(str(e))
 
@@ -40,11 +46,8 @@ def worker(input, state, event, util):
         return commit('done', dict(status=json.dumps(result[1])))
 
     if 'retry' != result[0]:
-        state_tuple = (control_info['state'], result[0])
-        if state_tuple in module.workflow:
-            control_info['state'] = module.workflow[state_tuple]
-        else:
-            return exception('next state not found')
+        control_info['state'] = module.workflow.get((control_info['state'],
+                                                     result[0]), 'handler')
 
     next_state    = control_info['state']
     commit_status = json.dumps(result[1])
@@ -67,6 +70,19 @@ def worker(input, state, event, util):
         return commit(next_state, dict(status=commit_status,
                                        state=commit_state,
                                        alarm=result[3]))
+
+    if 'message' == result[0]:
+        for m in result[3]:
+            if 'data' in m:
+                m['data'] = json.dumps(m['data'])
+
+        return commit(next_state, dict(status=commit_status,
+                                       state=commit_state,
+                                       message=result[3]))
+
+    if ('handler' == current_state) and ('handler' == control_info['state']):
+        return commit(next_state, dict(status=commit_status,
+                                       state=commit_state))
 
     return commit(next_state, dict(status=commit_status,
                                    state=commit_state,

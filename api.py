@@ -257,11 +257,11 @@ def commit():
           """,
           (req['appid'], com['workername']))
 
-    def insert_message(appid, workername, pool, code):
+    def insert_message(appid, workername, pool, code, data=None):
         query("""insert into messages
                  set workername=%s, appid=%s,
-                 pool=%s, state='queued', code=%s
-              """, (workername, appid, pool, code))
+                 pool=%s, state='queued', code=%s, data=%s
+              """, (workername, appid, pool, code, data))
 
     def get_lock_holder(lockname):
         row = query("""select appid, workername from locks
@@ -315,6 +315,17 @@ def commit():
                                    'default', 'locked')
                     mark_head(other_appid, other_workername)
 
+    if 'message' in com:
+        for msg in com['message']:
+            appid = query("select appid from workers where workername=%s",
+                          (msg['workername']))
+            if 1 == len(appid):
+                insert_message(appid[0][0], msg['workername'],
+                    msg.get('pool', 'default'),
+                    msg['code'],
+                    msg.get('data', None))
+                mark_head(appid[0][0], msg['workername'])
+
     if 'alarm' in com:
         if int(com['alarm']) < 1:
             com['alarm'] = 0
@@ -362,13 +373,17 @@ def lockmessage():
                 query(sql2, (req['client_ip'], msgid))
 
                 input, continuation = query(sql3, (workername))[0]
-                return dict(msgid        = msgid,
+                result = dict(msgid        = msgid,
                             workername   = workername,
                             input        = input,
                             continuation = continuation,
                             code         = code,
-                            data         = data,
                             pool         = pool)
+
+                if data:
+                    result['data'] = data
+
+                return result
 
     return "NOT_FOUND"
 

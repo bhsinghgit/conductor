@@ -38,8 +38,11 @@ def init(input, state, util):
 
     return ('ok', 'initialized', state)
 
-def update(input, state, event, util):
-    return ('ok', 'message received', dict(seq=0))
+def handler(input, state, event, util):
+    state.setdefault('messages', list()).append(event)
+
+    if input['count'] == len(state['messages']):
+        return ('ok', 'message received', state)
 
 def get_lock(input, state, util):
     state['seq'] += 1
@@ -71,10 +74,26 @@ def loop(input, state, util):
     if state['seq'] < 5:
         return ('retry', 'waiting in the loop', state, 1)
 
-    return ('ok', 'all done')
+    filename = '/tmp/locktest.' + state['index']
+
+    if os.path.isfile(filename):
+        message = dict(workername='0',
+                       code='file',
+                       data=json.loads(open(filename).read()))
+    else:
+        message = dict(code='nofile')
+
+    return ('message', 'sending message', state, [message])
+
+def send_response(input, state, util):
+    if ('0' == input['worker']) and (input['count'] != len(state['messages'])):
+        return ('again', 'still receiving messages', state)
+
+    return ('ok', state)
 
 workflow = {
     ('init',     'ok'):     'get_lock',
     ('get_lock', 'lock'):   'locktest',
-    ('locktest', 'unlock'): 'loop'
+    ('locktest', 'unlock'): 'loop',
+    ('handler',  'ok'):     'send_response'
 }
