@@ -41,6 +41,7 @@ create table workers(
     input        mediumblob   not null,
     status       mediumblob,
     continuation mediumblob,
+    sequence     int unsigned not null default 0,
     created      timestamp default current_timestamp,
     timestamp    timestamp
 ) engine=innodb;

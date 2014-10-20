@@ -4,6 +4,7 @@ import base64
 import httplib
 import optparse
 import uuid
+import time
 
 conf = json.loads(open('conductor.json').read())
 conn = httplib.HTTPConnection(conf['api_host'], conf['api_port'])
@@ -94,13 +95,35 @@ elif 'test' == opt.cmd:
     add_app('worker', '/usr/bin/python')
     add_host(opt.count)
     add_pool('localhost')
+
     guid = str(uuid.uuid4())
+
+    add_worker(json.dumps(dict(workflow='TestWorkflow1',
+                                   input=dict(expected=int(opt.workercount),
+                                              guid=guid))),
+               'TestWorkflow1')
+
     for i in range(int(opt.workercount)):
-        add_worker(json.dumps(dict(workflow='TestWorkflow',
+        add_worker(json.dumps(dict(workflow='TestWorkflow2',
                                    input=dict(worker=i,
                                               count=int(opt.workercount),
                                               guid=guid))),
-                   str(i))
+                   'TestWorkflow2-' + str(i))
+
+    while True:
+        conf['workername'] = 'TestWorkflow1'
+        result = http_client('POST', 'worker_status', conf)
+        if (result['status'] is None) or ('NOT_FOUND' == result['status']):
+            time.sleep(1)
+            continue
+
+        result = json.loads(base64.b64decode(result['status']))
+        print(result)
+        if result not in ['PASS', 'FAIL']:
+            time.sleep(1)
+            continue
+
+        break
     exit(0)
 
 print('invalid command')

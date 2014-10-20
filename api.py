@@ -169,6 +169,18 @@ def add_worker():
 
     return dict(workername=workername)
 
+@app.route('/worker_status', methods=['POST'])
+@transaction
+def get_worker_status():
+    req = validate_request()
+
+    rows = query("select status from workers where workername=%s",
+                 (req['workername']))
+    if 1 != len(rows):
+        return dict(status='NOT_FOUND')
+
+    return dict(status=rows[0][0])
+
 def mark_head(appid, workername):
     msgid = query("""select msgid from messages
                      where appid=%s and workername=%s
@@ -350,8 +362,6 @@ def lockmessage():
                     appid=%s and pool=%s and lock_ip is null
               order by priority limit 1
            """
-    sql2 = """update messages set lock_ip=%s where msgid=%s"""
-    sql3 = """select input, continuation from workers where workername=%s"""
 
     req   = validate_request()
     appid = req['appid']
@@ -370,10 +380,18 @@ def lockmessage():
             rows = query(sql1, (req['appid'], pool))
             if len(rows) > 0:
                 msgid, workername, code, data = rows[0]
-                query(sql2, (req['client_ip'], msgid))
 
-                input, continuation = query(sql3, (workername))[0]
-                result = dict(msgid        = msgid,
+                query("update messages set lock_ip=%s where msgid=%s",
+                      (req['client_ip'], msgid))
+                query("""update workers set sequence=sequence+1
+                         where workername=%s
+                      """, (workername))
+
+                input, continuation = query("""select input, continuation from
+                                               workers where workername=%s
+                                            """, (workername))[0]
+
+                result = dict(msgid      = msgid,
                             workername   = workername,
                             input        = input,
                             continuation = continuation,

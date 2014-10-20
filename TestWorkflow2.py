@@ -33,16 +33,19 @@ def init(input, state, util):
 
     state = dict(seq=0, index=str(index), random=list())
 
-    for i in range(5):
-        state['random'].append(str(random.randrange(input['count'])))
+    num = set()
+    while True:
+        num.add(random.randrange(input['count']))
+        if 5 == len(num):
+            break
+
+    for i in num:
+        state['random'].append(str(i))
 
     return ('ok', 'initialized', state)
 
 def handler(input, state, event, util):
-    state.setdefault('messages', list()).append(event)
-
-    if input['count'] == len(state['messages']):
-        return ('ok', 'message received', state)
+    return ('ok', 'got signal', state)
 
 def get_lock(input, state, util):
     state['seq'] += 1
@@ -74,26 +77,33 @@ def loop(input, state, util):
     if state['seq'] < 5:
         return ('retry', 'waiting in the loop', state, 1)
 
-    filename = '/tmp/locktest.' + state['index']
+    message = dict(workername='TestWorkflow1', code='inform')
+    return ('message', 'informing TestWorkflow1', state, [message])
+
+def send_file(input, state, util):
+    state['seq'] += 1
+
+    filename = '/tmp/locktest.' + str(input['worker'])
 
     if os.path.isfile(filename):
-        message = dict(workername='0',
+        message = dict(workername='TestWorkflow1',
                        code='file',
                        data=json.loads(open(filename).read()))
     else:
-        message = dict(code='nofile')
+        message = dict(workername='TestWorkflow1',
+                       code='file',
+                       data=dict(guid=input['guid'], total=0,
+                                  workers=[], extraTotal=0, extraWorkers=[]))
 
     return ('message', 'sending message', state, [message])
 
-def send_response(input, state, util):
-    if ('0' == input['worker']) and (input['count'] != len(state['messages'])):
-        return ('again', 'still receiving messages', state)
-
-    return ('ok', state)
+def done(input, state, util):
+    return ('ok', 'done')
 
 workflow = {
-    ('init',     'ok'):     'get_lock',
-    ('get_lock', 'lock'):   'locktest',
-    ('locktest', 'unlock'): 'loop',
-    ('handler',  'ok'):     'send_response'
+    ('init',      'ok'):      'get_lock',
+    ('get_lock',  'lock'):    'locktest',
+    ('locktest',  'unlock'):  'loop',
+    ('handler',   'ok'):      'send_file',
+    ('send_file', 'message'): 'done'
 }

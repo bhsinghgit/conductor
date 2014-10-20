@@ -1,17 +1,6 @@
 import json
 
 def worker(input, state, event, util):
-    def exception(msg):
-        util.log(
-            'state transition. current({0}) return({1}) exception({2})'.format(
-                current_state, result[0], msg))
-        return dict(exception=msg)
-
-    def commit(next, obj):
-        util.log('state transition. current({0}) return({1}) next({2})'.format(
-            current_state, result[0], next))
-        return obj
-
     input = json.loads(input)
 
     if 'data' in event:
@@ -36,54 +25,48 @@ def worker(input, state, event, util):
             result = method(input['input'], continuation, event, util)
         else:
             result = method(input['input'], continuation, util)
-    except Exception as e:
-        return exception(str(e))
 
-    if len(result) < 2:
-        return exception('invalid return value')
+        if len(result) < 2:
+            raise Exception('invalid return value')
+    except Exception as e:
+        util.log(
+            'state transition. current({0}) return({1}) exception({2})'.format(
+                current_state, result[0], str(e)))
+        return dict(exception=str(e))
 
     if 2 == len(result):
-        return commit('done', dict(status=json.dumps(result[1])))
+        util.log('state transition. finished. current({0}) return({1})'.format(
+            current_state, result[0]))
+        return dict(status=json.dumps(result[1]))
 
     if 'retry' != result[0]:
         control_info['state'] = module.workflow.get((control_info['state'],
                                                      result[0]), 'handler')
 
-    next_state    = control_info['state']
-    commit_status = json.dumps(result[1])
-    commit_state  = json.dumps(dict(control_info=control_info,
-                                    continuation=result[2]))
-
+    next_state  = control_info['state']
+    commit_dict = dict(status=json.dumps(result[1]),
+                       state=json.dumps(dict(control_info=control_info,
+                                             continuation=result[2])))
 
     if 'lock' == result[0]:
-        return commit(next_state, dict(status=commit_status,
-                                       state=commit_state,
-                                       lock=result[3]))
+        commit_dict['lock']   = result[3]
 
     if 'unlock' == result[0]:
-        return commit(next_state, dict(status=commit_status,
-                                       state=commit_state,
-                                       unlock=result[3],
-                                       alarm=0))
-
-    if 'retry' == result[0]:
-        return commit(next_state, dict(status=commit_status,
-                                       state=commit_state,
-                                       alarm=result[3]))
+        commit_dict['unlock'] = result[3]
 
     if 'message' == result[0]:
         for m in result[3]:
             if 'data' in m:
                 m['data'] = json.dumps(m['data'])
 
-        return commit(next_state, dict(status=commit_status,
-                                       state=commit_state,
-                                       message=result[3]))
+        commit_dict['message'] = result[3]
 
-    if ('handler' == current_state) and ('handler' == control_info['state']):
-        return commit(next_state, dict(status=commit_status,
-                                       state=commit_state))
+    if ('handler' != next_state) and ('lock' != result[0]):
+        commit_dict['alarm'] = 0
 
-    return commit(next_state, dict(status=commit_status,
-                                   state=commit_state,
-                                   alarm=0))
+    if 'retry' == result[0]:
+        commit_dict['alarm'] = result[3]
+
+    util.log('state transition. current({0}) return({1}) next({2})'.format(
+            current_state, result[0], next_state))
+    return commit_dict
