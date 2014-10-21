@@ -4,6 +4,7 @@ import time
 import socket
 import fcntl
 import util
+import re
 
 conf, lock, logger = util.initialize('collector')
 
@@ -66,20 +67,25 @@ while True:
         sock.sendall('%010d' % (filesize))
 
         session = 'orphan'
+        pattern = '^(\w+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+) ([-\w]+) : '
+        regex   = re.compile(pattern)
         while True:
             buffer = sock.recv(1024*1024*1024)
             if len(buffer) < 1:
                 exit(0)
 
             for line in buffer.split('\n'):
-                fields = line.split(':', 1)
+                if len(line) == 0:
+                    continue
 
-                if len(fields) > 1:
-                    header = fields[0].split('.')
-                    if len(header) == 7:
-                        session = '.'.join(header[0:3])
+                m = regex.match(line)
+                if m:
+                    if m.group(8).isdigit():
+                        continue
 
-                if len(line) > 0:
-                    append(session, line)
+                    session = '.'.join([m.group(1), m.group(2), m.group(3)])
+
+                print(session)
+                append(session, line)
 
             os.write(fd, buffer)
