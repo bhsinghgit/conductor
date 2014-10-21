@@ -20,9 +20,9 @@ class Logger(object):
 
         os.write(3, '\n{0}.{1}.{2}.{3} {4} : {5}'.format(
             self.session,
-            "%010d" % (self.sequence),
+            '%010d' % (self.sequence),
             time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
-            int((utc - int(utc)) * 1000000),
+            '%06d' % (int((utc - int(utc)) * 1000000)),
             tag,
             msg
         ))
@@ -40,10 +40,12 @@ class Logger(object):
 
     def blob(self, msg):
         b64enc = base64.b64encode(msg)
-
         self.append(len(b64enc), b64enc)
-
         return self.sequence
+
+def get_log_seq():
+    seq = time.strftime('%y%m%d%H', time.gmtime((time.time()//(6*3600))*6*3600))
+    return int(seq)
 
 def initialize(id):
     map(os.close, range(3))
@@ -51,7 +53,7 @@ def initialize(id):
     os.umask(0)
     os.open('/dev/null', os.O_RDONLY)
 
-    seq = time.strftime('%y%m%d%H', time.gmtime((time.time()//(6*3600))*6*3600))
+    seq = get_log_seq()
     for path in ['stdout', 'stderr']:
         os.open('{0}.{1}.{2}'.format(id, path, seq),
                 os.O_CREAT|os.O_WRONLY|os.O_APPEND,
@@ -65,11 +67,11 @@ def initialize(id):
         return json.load(fd), lock, Logger(id)
 
 def remove_old_logs():
-    seq = time.strftime('%y%m%d%H', time.gmtime((time.time()//(6*3600))*6*3600))
+    seq = get_log_seq()
     for path in os.listdir('.'):
         fields = path.split('.')
         if (3 == len(fields)) and (fields[1] in ['stdout', 'stderr']):
-            if int(fields[2]) < (int(seq)-12):
+            if int(fields[2]) < (seq-12):
                try: 
                    os.remove(path)
                except:
