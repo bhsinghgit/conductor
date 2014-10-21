@@ -383,17 +383,18 @@ def lockmessage():
 
                 query("update messages set lock_ip=%s where msgid=%s",
                       (req['client_ip'], msgid))
-                query("""update workers set sequence=sequence+1
+                query("""update workers set session=session+1
                          where workername=%s
                       """, (workername))
 
-                input, continuation = query("""select input, continuation from
-                                               workers where workername=%s
-                                            """, (workername))[0]
+                input, continuation, session = query(
+                    """select input, continuation, session from workers
+                       where workername=%s """, (workername))[0]
 
                 result = dict(msgid      = msgid,
                             workername   = workername,
                             input        = input,
+                            session      = session,
                             continuation = continuation,
                             code         = code,
                             pool         = pool)

@@ -7,18 +7,15 @@ import socket
 import signal
 import util
 
-conf, lock  = util.initialize('agent')
+def log(msg):
+    logger.log(msg)
+def blob(msg):
+    logger.blob(msg)
+
+conf, lock, logger  = util.initialize('agent')
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.connect((conf['supervisor_host'], conf['supervisor_port']))
-
-ip_address = sock.getsockname()[0]
-
-def log(msg):
-    util.log('agent', ip_address, 'log', msg)
-
-def blob(msg):
-    return util.blob('agent', ip_address, msg)
 
 signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
@@ -54,7 +51,6 @@ while True:
         os.write(fd, json.dumps(dict(appname=app['appname'],
                                      authkey=app['authkey'],
                                      path=app['path'],
-                                     ip_address=ip_address,
                                      api_host=app['api_host'],
                                      api_port=app['api_port']),
                                      indent=4, sort_keys=True))

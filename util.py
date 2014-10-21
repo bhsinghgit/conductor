@@ -5,32 +5,45 @@ import json
 import base64
 import hashlib
 
-def log_writer(worker_id, ip, tag, msg):
-    utc  = time.time()
+class Logger(object):
+    def __init__(self, thread, session=None):
+        if not session:
+            session = int(time.time())
 
-    os.write(3, '\n[{0}.{1} {2} {3} {4} {5}] {6}'.format(
-        time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
-        int((utc - int(utc)) * 1000000),
-        os.getpid(),
-        ip,
-        worker_id,
-        tag,
-        msg
-    ))
+        self.session  = "%s.%010d.%06d" % (thread, session, os.getpid())
+        self.sequence = 0
 
-def log(worker_id, ip, tag, msg):
-    index = msg.find('\n')
-    if index > -1:
-        log_writer(worker_id, ip, tag, msg[:index])
-    else:
-        log_writer(worker_id, ip, tag, msg)
+    def append(self, tag, msg):
+        self.sequence += 1
 
-def blob(worker_id, ip, msg):
-    b64enc  = base64.b64encode(msg)
-    md5hash = hashlib.md5(msg).hexdigest()
+        utc = time.time()
 
-    log_writer(worker_id, ip, 'blob.{0}.{1}'.format(len(b64enc),md5hash),b64enc)
-    return md5hash
+        os.write(3, '\n{0}.{1}.{2}.{3} {4} : {5}'.format(
+            self.session,
+            "%010d" % (self.sequence),
+            time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
+            int((utc - int(utc)) * 1000000),
+            tag,
+            msg
+        ))
+
+    def log(self, tag, msg=None):
+        if msg is None:
+            msg = tag
+            tag = '-'
+
+        index = msg.find('\n')
+        if index > -1:
+            self.append(tag, msg[:index])
+        else:
+            self.append(tag, msg)
+
+    def blob(self, msg):
+        b64enc = base64.b64encode(msg)
+
+        self.append(len(b64enc), b64enc)
+
+        return self.sequence
 
 def initialize(id):
     map(os.close, range(3))
@@ -49,7 +62,7 @@ def initialize(id):
     lock = os.open('{0}.lock'.format(id), os.O_CREAT|os.O_RDONLY, 0444)
     fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
     with open('conductor.json'.format(id)) as fd:
-        return json.load(fd), lock
+        return json.load(fd), lock, Logger(id)
 
 def remove_old_logs():
     seq = time.strftime('%y%m%d%H', time.gmtime((time.time()//(6*3600))*6*3600))

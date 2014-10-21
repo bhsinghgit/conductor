@@ -8,12 +8,12 @@ import urllib
 import util
 
 def log(msg):
-    util.log('supervisor', socket.gethostname(), 'log', msg)
-
+    logger.log(msg)
 def blob(msg):
-    return util.blob('supervisor', socket.gethostname(), msg)
+    logger.blob(msg)
 
-conf, lock  = util.initialize('supervisor')
+conf, lock, logger  = util.initialize('supervisor')
+
 util.remove_old_logs()
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
