@@ -12,13 +12,13 @@ def log(msg):
 def blob(msg):
     logger.blob(msg)
 
-conf, lock, logger  = util.initialize('supervisor')
+conf, lock, logger  = util.initialize('notifier')
 
 util.remove_old_logs()
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-listener.bind(('', conf['supervisor_port']))
+listener.bind(('', conf['notifier_port']))
 listener.listen(5)
 listener.setblocking(0)
 log('listening on {0}'.format(listener.getsockname()))
@@ -41,7 +41,7 @@ def disconnect(sock):
 
     context.pop(sock)
     sock.close()
-    log('agent disconnected from{0}'.format(addr))
+    log('launcher disconnected from{0}'.format(addr))
 
 timestamp = 0
 host2sock = dict()
@@ -67,7 +67,7 @@ while True:
             conn.setblocking(0)
             context[conn] = dict(remote=addr)
             host2sock[addr[0]] = conn
-            log('agent connected from{0}'.format(addr))
+            log('launcher connected from{0}'.format(addr))
             continue
 
         addr = context[sock]['remote']

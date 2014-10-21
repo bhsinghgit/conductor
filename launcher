@@ -12,10 +12,10 @@ def log(msg):
 def blob(msg):
     logger.blob(msg)
 
-conf, lock, logger  = util.initialize('agent')
+conf, lock, logger  = util.initialize('launcher')
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect((conf['supervisor_host'], conf['supervisor_port']))
+sock.connect((conf['launcher_host'], conf['launcher_port']))
 
 signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
@@ -24,7 +24,7 @@ while True:
     while True:
         b = sock.recv(64*1024)
         if 0 == len(b):
-            log('disconnected by supervisor')
+            log('disconnected by notifier')
             exit(0)
         bytes += b
 
@@ -70,8 +70,8 @@ while True:
                 if 'worker' == app['type']:
                     command   = os.path.join(app['path'])
                     dirname   = os.path.dirname(sys.argv[0])
-                    launcher  = os.path.join(dirname, 'worker')
-                    arguments = [command, launcher]
+                    worker    = os.path.join(dirname, 'worker')
+                    arguments = [command, worker]
                 elif 'rpc' == app['type']:
                     pass
 
