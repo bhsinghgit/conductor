@@ -9,12 +9,12 @@ setup(
     url='https://github.com/bhsinghgit/conductor',
     author_email='bhsingh@gmail.com',
     version='0.1',
-    packages=['conductor'],
+    packages=['microlight'],
     scripts=['bin/notifier',
              'bin/launcher',
              'bin/worker',
              'bin/collector',
              'bin/shipper',
              'bin/cli'],
-    name='conductor'
+    name='microlight'
 )
