@@ -6,15 +6,15 @@ except ImportError:
 setup(
     description='An execution engine for async tasks',
     author='Bhupendra Singh',
-    url='https://github.com/bhsinghgit/crux',
+    url='https://github.com/bhsinghgit/shepherd',
     author_email='bhsingh@gmail.com',
     version='0.1',
-    packages=['crux'],
+    packages=['shepherd'],
     scripts=['bin/notifier',
              'bin/launcher',
              'bin/worker',
              'bin/collector',
              'bin/shipper',
              'bin/cli'],
-    name='crux'
+    name='shepherd'
 )
