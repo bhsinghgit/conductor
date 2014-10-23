@@ -6,15 +6,15 @@ except ImportError:
 setup(
     description='An execution engine for async tasks',
     author='Bhupendra Singh',
-    url='https://github.com/bhsinghgit/conductor',
+    url='https://github.com/bhsinghgit/crux',
     author_email='bhsingh@gmail.com',
     version='0.1',
-    packages=['microlight'],
+    packages=['crux'],
     scripts=['bin/notifier',
              'bin/launcher',
              'bin/worker',
              'bin/collector',
              'bin/shipper',
              'bin/cli'],
-    name='microlight'
+    name='crux'
 )
