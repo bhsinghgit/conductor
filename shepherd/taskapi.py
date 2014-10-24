@@ -8,7 +8,7 @@ import time
 import MySQLdb
 
 app       = flask.Flask(__name__)
-conf      = json.loads(open('conductor.json').read())
+conf      = json.load(open('shepherd.json'))
 db_conn   = MySQLdb.connect(conf['mysql_host'],
                             conf['mysql_user'],
                             conf['mysql_password'],

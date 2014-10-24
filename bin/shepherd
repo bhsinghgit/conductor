@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+import os
+import sys
+import json
+import time
+import fcntl
+import shepherd.logger
+
+if sys.argv[1] not in ['notifier', 'launcher', 'collector', 'shipper']:
+    print('invalid arg({0})'.format(sys.argv[1]))
+    exit(1)
+
+def ymdH(subtract_hour=0):
+    now = int(time.time()) - (subtract_hour*3600)
+    return int(time.strftime('%y%m%d%H',time.gmtime((now//(6*3600))*6*3600)))
+
+logseq = ymdH()
+oldseq = ymdH(12)
+
+os.umask(0)
+
+map(os.close, range(3))
+os.open('/dev/null', os.O_RDONLY)
+
+for path in ['stdout', 'stderr']:
+    os.open('{0}.{1}.{2}'.format(sys.argv[1], path, logseq),
+            os.O_CREAT|os.O_WRONLY|os.O_APPEND,
+            0644)
+
+os.open('log.{0}'.format(logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND, 0644)
+
+lock = os.open('{0}.lock'.format(sys.argv[1]), os.O_CREAT|os.O_RDONLY, 0444)
+fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+for path in os.listdir('.'):
+    fields = path.split('.')
+    if (3 == len(fields)) and (fields[1] in ['stdout', 'stderr']):
+        if int(fields[2]) < oldseq:
+            os.remove(path)
+
+logobj = shepherd.logger.Logger(sys.argv[1])
+module = getattr(__import__('shepherd.' + sys.argv[1]), sys.argv[1])
+
+module.conf = json.load(open('shepherd.json'))
+module.log  = lambda msg: logobj.log(msg)
+module.blob = lambda msg: logobj.blob(msg)
+
+module.run()

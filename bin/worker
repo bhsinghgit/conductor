@@ -5,7 +5,8 @@ import time
 import json
 import base64
 import httplib
-import util
+
+import shepherd.logger
 
 def http_client(method, resource, args):
     req = json.dumps(args)
@@ -29,7 +30,7 @@ def http_client(method, resource, args):
 
 app    = json.load(open('{0}.key'.format(os.getuid())))
 conn   = httplib.HTTPConnection(app['api_host'] + ':' + str(app['api_port']))
-logger = util.Logger('worker')
+logger = shepherd.logger.Logger('worker')
 
 sys.path.append(os.path.dirname(app['path']))
 import worker
@@ -46,7 +47,8 @@ while True:
     result = worker.worker(base64.b64decode(msg['input']),
                            base64.b64decode(msg['continuation']),
                            event,
-                           util.Logger(msg['workername'], msg['session']))
+                           shepherd.logger.Logger(msg['workername'],
+                                                  msg['session']))
 
     if result is None:
         result = dict(status='worker crashed')
