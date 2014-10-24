@@ -41,7 +41,6 @@ def run():
             fd = os.open(uid + '.key', os.O_CREAT|os.O_WRONLY, 0600)
             os.write(fd, json.dumps(dict(appname=app['appname'],
                                          authkey=app['authkey'],
-                                         path=app['path'],
                                          api_host=app['api_host'],
                                          api_port=app['api_port']),
                                          indent=4, sort_keys=True))

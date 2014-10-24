@@ -32,7 +32,6 @@ app    = json.load(open('{0}.key'.format(os.getuid())))
 conn   = httplib.HTTPConnection(app['api_host'] + ':' + str(app['api_port']))
 logger = shepherd.logger.Logger('worker')
 
-sys.path.append(os.path.dirname(app['path']))
 import worker
 
 while True:

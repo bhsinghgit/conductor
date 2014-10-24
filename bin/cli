@@ -41,20 +41,20 @@ elif 'test' == opt.cmd:
 
     guid = str(uuid.uuid4())
 
-    client.add_worker(json.dumps(dict(workflow='TestWorkflow1',
+    client.add_worker(json.dumps(dict(workflow='sheepdog',
                                       input=dict(expected=int(opt.workercount),
                                                  guid=guid))),
-               'TestWorkflow1')
+               'sheepdog')
 
     for i in range(int(opt.workercount)):
-        client.add_worker(json.dumps(dict(workflow='TestWorkflow2',
+        client.add_worker(json.dumps(dict(workflow='sheep',
                                           input=dict(worker=i,
                                                      count=int(opt.workercount),
                                                      guid=guid))),
-                          'TestWorkflow2-' + str(i))
+                          'sheep-' + str(i))
 
     while True:
-        client.conf['workername'] = 'TestWorkflow1'
+        client.conf['workername'] = 'sheepdog'
         result = client.http_client('POST', 'worker_status', client.conf)
         if (result['status'] is None) or ('NOT_FOUND' == result['status']):
             time.sleep(1)

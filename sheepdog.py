@@ -21,7 +21,7 @@ def handler(input, state, event, util):
 
         messages = list()
         for i in range(input['expected']):
-            messages.append(dict(workername='TestWorkflow2-' + str(i),
+            messages.append(dict(workername='sheep-' + str(i),
                                  code='signal'))
 
         return ('message', 'sent signal', state, messages)
