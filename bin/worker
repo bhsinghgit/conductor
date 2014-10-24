@@ -6,7 +6,9 @@ import json
 import base64
 import httplib
 
-import shepherd.logger
+sys.path.append(os.getcwd() + '/lib/python2.6/site-packages')
+
+import logger
 
 def http_client(method, resource, args):
     req = json.dumps(args)
@@ -16,10 +18,10 @@ def http_client(method, resource, args):
     response = conn.getresponse()
     res      = response.read()
 
-    logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
-                'request({4}) response({5})').format(
+    log.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
+                    'request({4}) response({5})').format(
         method, resource, response.status, response.reason,
-        logger.blob(req), logger.blob(res)))
+        log.blob(req), log.blob(res)))
 
     try:
         body = json.loads(res)
@@ -28,9 +30,9 @@ def http_client(method, resource, args):
 
     return response.status, response.reason, body
 
-app    = json.load(open('{0}.key'.format(os.getuid())))
-conn   = httplib.HTTPConnection(app['api_host'] + ':' + str(app['api_port']))
-logger = shepherd.logger.Logger('worker')
+app  = json.load(open('{0}.key'.format(os.getuid())))
+conn = httplib.HTTPConnection(app['api_host'] + ':' + str(app['api_port']))
+log  = logger.Logger('worker')
 
 import worker
 
@@ -46,8 +48,8 @@ while True:
     result = worker.worker(base64.b64decode(msg['input']),
                            base64.b64decode(msg['continuation']),
                            event,
-                           shepherd.logger.Logger(msg['workername'],
-                                                  msg['session']))
+                           logger.Logger(msg['workername'],
+                                         msg['session']))
 
     if result is None:
         result = dict(status='worker crashed')

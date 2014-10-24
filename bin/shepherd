@@ -4,7 +4,7 @@ import sys
 import json
 import time
 import fcntl
-import shepherd.logger
+import logger
 
 if sys.argv[1] not in ['notifier', 'launcher', 'collector', 'shipper']:
     print('invalid arg({0})'.format(sys.argv[1]))
@@ -38,7 +38,7 @@ for path in os.listdir('.'):
         if int(fields[2]) < oldseq:
             os.remove(path)
 
-logobj = shepherd.logger.Logger(sys.argv[1])
+logobj = logger.Logger(sys.argv[1])
 module = getattr(__import__('shepherd.' + sys.argv[1]), sys.argv[1])
 
 module.conf = json.load(open('shepherd.json'))
