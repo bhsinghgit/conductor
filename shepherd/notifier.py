@@ -3,6 +3,7 @@ import json
 import time
 import socket
 import select
+import fcntl
 import urllib
 
 host2sock = dict()
@@ -39,6 +40,7 @@ def run(timeout):
     listener.setblocking(0)
     log('listening on {0}'.format(listener.getsockname()))
 
+    fcntl.fcntl(listener, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
     isock.add(listener)
 
     timestamp = 0
@@ -54,6 +56,7 @@ def run(timeout):
             if sock is listener:
                 conn, addr = sock.accept()
     
+                fcntl.fcntl(conn, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
                 if addr[0] in host2sock:
                     disconnect(host2sock[addr[0]])
 
@@ -162,5 +165,3 @@ def run(timeout):
             osock.add(sock)
 
         timestamp = time.time()
-
-    listener.close()

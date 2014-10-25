@@ -41,6 +41,9 @@ def run(timeout):
         if pid > 0:
             sock.close()
         elif 0 == pid:
+            if os.fork() != 0:
+                exit(0)
+
             timeout = time.time() + allowed
 
             os.close(4)
@@ -90,3 +93,5 @@ def run(timeout):
                     append(session, line)
 
                 os.write(fd, buffer)
+
+    listener.close()

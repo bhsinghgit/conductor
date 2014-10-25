@@ -21,7 +21,7 @@ def run(timeout):
             os.close(4)
             os.setsid()
         
-            fd   = os.open(path, os.O_RDONLY)
+            fd = os.open(path, os.O_RDONLY)
             fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -46,3 +46,6 @@ def run(timeout):
                     time.sleep(1)
                     if file_seq < (ymdH(12)):
                         raise Exception('stopping for file({0})'.format(path))
+
+            os.close(fd)
+            raise Exception('timedout')

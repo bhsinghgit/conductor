@@ -8,8 +8,13 @@ import signal
 def run(timeout):
     signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((conf['notifier_host'], conf['notifier_port']))
+    while time.time() < timeout:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((conf['notifier_host'], conf['notifier_port']))
+            break
+        except:
+            time.sleep(5)
 
     while time.time() < timeout:
         bytes = ''
@@ -17,7 +22,7 @@ def run(timeout):
             b = sock.recv(64*1024)
             if 0 == len(b):
                 log('disconnected by notifier')
-                exit(0)
+                return
             bytes += b
 
             try:

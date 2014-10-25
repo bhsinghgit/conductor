@@ -78,5 +78,5 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
 
     module.run(time.time() + 300)
 
-    os.close(4)
-    os.system(' '.join(sys.argv))
+    os.close(lock)
+    os.system(' '.join(sys.argv) + '&')
