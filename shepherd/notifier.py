@@ -31,7 +31,7 @@ def disconnect(sock):
     sock.close()
     log('launcher disconnected from{0}'.format(addr))
 
-def run():
+def run(timeout):
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(('', conf['notifier_port']))
@@ -43,7 +43,7 @@ def run():
 
     timestamp = 0
 
-    while True:
+    while time.time() < timeout:
         rsock, wsock, esock = select.select(isock, osock, isock.union(osock), 1)
 
         if len(esock):
@@ -162,3 +162,5 @@ def run():
             osock.add(sock)
 
         timestamp = time.time()
+
+    listener.close()

@@ -2,7 +2,7 @@ import json
 import os
 import random
 
-def init(input, state, util):
+def init(input, state):
     track = dict(workers=dict(), extras=dict())
     for i in range(input['expected']):
         track['workers'][i] = 0
@@ -12,7 +12,7 @@ def init(input, state, util):
 
     return ('ok', 'initialized', state)
 
-def handler(input, state, event, util):
+def handler(input, state, event):
     if 'inform' == event['code']:
         state['signals'] += 1
 
@@ -53,7 +53,7 @@ def handler(input, state, event, util):
 
         return ('continue', 'message processed', state)
 
-def done(input, state, util):
+def done(input, state):
     return ('ok', state)
 
 workflow = {

@@ -27,19 +27,22 @@ def append(session, line):
 
     os.write(filedict[filename], '\n' + line)
 
-def run():
+def run(timeout):
+    allowed  = timeout - time.time()
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(('', conf['collector_port']))
     listener.listen(5)
     log('listening on {0}'.format(listener.getsockname()))
 
-    while True:
+    while time.time() < timeout:
         sock, addr = listener.accept()
         pid = os.fork()
         if pid > 0:
             sock.close()
         elif 0 == pid:
+            timeout = time.time() + allowed
+
             os.close(4)
             listener.close()
             os.setsid()
@@ -68,7 +71,7 @@ def run():
             sock.sendall('%010d' % (filesize))
 
             session = 'orphan'
-            while True:
+            while time.time() < timeout:
                 buffer = sock.recv(1024*1024*1024)
                 if len(buffer) < 1:
                     exit(0)

@@ -7,7 +7,7 @@ def ymdH(subtract_hour=0):
     now = int(time.time()) - (subtract_hour*3600)
     return int(time.strftime('%y%m%d%H',time.gmtime((now//(6*3600))*6*3600)))
 
-def run():
+def run(timeout):
     for path in os.listdir('.'):
         fields = path.split('.')
         if (len(fields) != 2) or ('log' != fields[0]):
@@ -37,7 +37,7 @@ def run():
             log('filename({0}) size({1})'.format(path, int(reply)))
             os.lseek(fd, int(reply), os.SEEK_SET)
 
-            while True:
+            while time.time() < timeout:
                 buffer = os.read(fd, 1024*1024*1024)
 
                 if len(buffer) > 0:
@@ -45,5 +45,4 @@ def run():
                 else:
                     time.sleep(1)
                     if file_seq < (ymdH(12)):
-                        log('stopping monitoring file({0})'.format(path))
-                        exit(0)
+                        raise Exception('stopping for file({0})'.format(path))

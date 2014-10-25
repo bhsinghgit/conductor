@@ -8,9 +8,8 @@ setup(
     author='Bhupendra Singh',
     url='https://github.com/bhsinghgit/shepherd',
     author_email='bhsingh@gmail.com',
-    version='0.3',
+    version='0.4',
     packages=['shepherd'],
-    scripts=['bin/shepherd', 'bin/cli', 'bin/worker'],
-    py_modules=['logger', 'worker', 'sheepdog', 'sheep'],
+    scripts=['bin/shepherd', 'bin/sheep'],
     name='shepherd'
 )

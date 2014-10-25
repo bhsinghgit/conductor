@@ -1,0 +1,128 @@
+#!/usr/bin/env python
+import json
+import base64
+import uuid
+import time
+import httplib
+import optparse
+
+conf = json.loads(open('shepherd.json').read())
+conn = httplib.HTTPConnection(conf['api_host'], conf['api_port'])
+
+def http_client(method, resource, args):
+    conn.request(method, resource, json.dumps(args))
+    response = conn.getresponse()
+
+    if 200 == response.status:
+        return json.loads(response.read())
+    else:
+        print(json.dumps(args, indent=4, sort_keys=True))
+        print('{0} {1} {2}'.format(resource, response.status, response.reason))
+        print(response.read())
+        exit(1)
+
+def http_post(resource, args):
+    return http_client('POST', resource, args)
+
+def http_delete(resource, args):
+    return http_client('DELETE', resource, args)
+
+def print_result(result):
+    print(json.dumps(result, indent=4, sort_keys=True))
+    exit(0)
+
+def add_app(type, path):
+    conf['app'] = dict(type=type, path=path)
+    return http_post('applications', conf)
+
+def del_app():
+    return http_delete('applications', conf)
+
+def add_host(count):
+    conf['host'] = dict(count=count)
+    return http_post('hosts', conf)
+
+def add_pool(pool):
+    conf['pool'] = dict(pool=pool)
+    return http_post('pools', conf)
+
+def add_worker(input, workername=None):
+    conf['worker'] = dict(input=base64.b64encode(input))
+    if workername:
+        conf['worker']['workername'] = workername
+
+    return http_post('workers', conf)
+
+def send_msg(workername, code, data=None, pool=None, delay=None):
+    conf['msg'] = dict(workername=workername, code=code)
+    if pool:
+        conf['msg']['pool'] = opt.pool
+    if data:
+        conf['msg']['data'] = base64.b64encode(data)
+    if delay:
+        conf['msg']['delay'] = int(opt.delay)
+
+    return http_post('messages', conf)
+
+op = optparse.OptionParser()
+op.add_option('--cmd',         dest='cmd')
+op.add_option('--type',        dest='type')
+op.add_option('--path',        dest='path')
+op.add_option('--workername',  dest='workername')
+op.add_option('--pool',        dest='pool')
+op.add_option('--count',       dest='count')
+
+op.add_option('--input',       dest='input')
+op.add_option('--code',        dest='code')
+op.add_option('--data',        dest='data')
+op.add_option('--delay',       dest='delay')
+op.add_option('--workercount', dest='workercount')
+
+(opt, junk) = op.parse_args()
+
+if 'add_app' == opt.cmd:
+    print_result(add_app(opt.type, opt.path))
+elif 'add_host' == opt.cmd:
+    print_result(add_host(opt.count))
+elif 'add_pool' == opt.cmd:
+    print_result(add_pool(opt.pool))
+elif 'add_worker' == opt.cmd:
+    print_result(add_worker(open(opt.input).read(), opt.workername))
+elif 'send_msg' == opt.cmd:
+    print_result(send_msg(opt.workername, opt.code,opt.data,opt.pool,opt.delay))
+elif 'test' == opt.cmd:
+    del_app()
+    add_app('worker', '/tmp/abcd/bin/python')
+    add_host(opt.count)
+    add_pool('localhost')
+
+    guid = str(uuid.uuid4())
+
+    add_worker(json.dumps(dict(workflow='sheepdog',
+                                      input=dict(expected=int(opt.workercount),
+                                                 guid=guid))),
+               'sheepdog')
+
+    for i in range(int(opt.workercount)):
+        add_worker(json.dumps(dict(workflow='sheep',
+                                   input=dict(worker=i,
+                                              count=int(opt.workercount),
+                                              guid=guid))),
+                   'sheep-' + str(i))
+
+    while True:
+        conf['workername'] = 'sheepdog'
+        result = http_client('POST', 'worker_status', conf)
+        if (result['status'] is None) or ('NOT_FOUND' == result['status']):
+            time.sleep(1)
+            continue
+
+        result = json.loads(base64.b64decode(result['status']))
+        print(result)
+        if result not in ['PASS', 'FAIL']:
+            time.sleep(1)
+            continue
+
+        break
+else:
+    print('invalid command')

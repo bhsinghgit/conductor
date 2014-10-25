@@ -1,18 +1,19 @@
 import os
 import sys
 import json
+import time
 import socket
 import signal
 
-def run():
+def run(timeout):
     signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((conf['notifier_host'], conf['notifier_port']))
 
-    while True:
+    while time.time() < timeout:
         bytes = ''
-        while True:
+        while time.time() < timeout:
             b = sock.recv(64*1024)
             if 0 == len(b):
                 log('disconnected by notifier')
@@ -60,7 +61,7 @@ def run():
                     if 'worker' == app['type']:
                         command   = os.path.join(app['path'])
                         dirname   = os.path.dirname(sys.argv[0])
-                        worker    = os.path.join(dirname, 'worker')
+                        worker    = os.path.join(dirname, 'sheep')
                         arguments = [command, worker]
                     elif 'rpc' == app['type']:
                         pass

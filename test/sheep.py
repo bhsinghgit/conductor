@@ -28,7 +28,7 @@ def modify(guid, worker, filename, key):
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
 
-def init(input, state, util):
+def init(input, state):
     index = ('%010d' % (input['worker']))[9]
 
     state = dict(seq=0, index=str(index), random=list())
@@ -44,10 +44,10 @@ def init(input, state, util):
 
     return ('ok', 'initialized', state)
 
-def handler(input, state, event, util):
+def handler(input, state, event):
     return ('ok', 'got signal', state)
 
-def get_lock(input, state, util):
+def get_lock(input, state):
     state['seq'] += 1
 
     locks = list(state['index'])
@@ -56,7 +56,7 @@ def get_lock(input, state, util):
     return ('lock', 'waiting for lock', state,
             ['locktest-{0}'.format(l) for l in locks])
 
-def locktest(input, state, util):
+def locktest(input, state):
     state['seq'] += 1
 
     modify(input['guid'], input['worker'],
@@ -71,7 +71,7 @@ def locktest(input, state, util):
     return ('unlock', 'file modified', state,
             ['locktest-{0}'.format(l) for l in locks])
 
-def loop(input, state, util):
+def loop(input, state):
     state['seq'] += 1
 
     if state['seq'] < 5:
@@ -80,7 +80,7 @@ def loop(input, state, util):
     message = dict(workername='sheepdog', code='inform')
     return ('message', 'informing sheepdog', state, [message])
 
-def send_file(input, state, util):
+def send_file(input, state):
     state['seq'] += 1
 
     filename = '/tmp/locktest.' + str(input['worker'])
@@ -97,7 +97,7 @@ def send_file(input, state, util):
 
     return ('message', 'sending message', state, [message])
 
-def done(input, state, util):
+def done(input, state):
     return ('ok', 'done')
 
 workflow = {
