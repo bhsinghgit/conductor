@@ -1,0 +1,4 @@
+* * * * * cd /tmp/test && /tmp/test/bin/shepherd notifier
+* * * * * cd /tmp/test && /tmp/test/bin/shepherd launcher
+* * * * * cd /tmp/test && /tmp/test/bin/shepherd collector
+* * * * * cd /tmp/test && /tmp/test/bin/shepherd shipper

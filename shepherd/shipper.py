@@ -19,33 +19,43 @@ def run(timeout):
             log('removed log file({0})'.format(path))
         elif os.fork() == 0:
             os.close(4)
-            os.setsid()
         
-            fd = os.open(path, os.O_RDONLY)
-            fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+            try:
+                fd = os.open(path, os.O_RDONLY)
+                fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except:
+                log('file({0}) is locked'.format(path))
+                exit(0)
 
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((conf['collector_host'], conf['collector_port']))
-            log('connected to collector {0}'.format(sock.getpeername()))
+            while time.time() < timeout:
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.connect((conf['collector_host'],
+                                  conf['collector_port']))
+                    log('connected to collector {0}'.format(sock.getpeername()))
+                    break
+                except:
+                    time.sleep(5)
 
             sock.sendall('%s' % (path))
-            reply = sock.recv(10)
+            reply = sock.recv(12)
 
-            if (len(reply) < 10) or (int(reply) < 0):
+            if (len(reply) < 12) or (int(reply) < 0):
                 exit(0)
 
             log('filename({0}) size({1})'.format(path, int(reply)))
             os.lseek(fd, int(reply), os.SEEK_SET)
 
             while time.time() < timeout:
-                buffer = os.read(fd, 1024*1024*1024)
+                buffer = os.read(fd, 10*1024*1024)
 
                 if len(buffer) > 0:
                     sock.sendall(buffer)
                 else:
                     time.sleep(1)
                     if file_seq < (ymdH(12)):
-                        raise Exception('stopping for file({0})'.format(path))
+                        log('stop shipping file({0})'.format(path))
+                        break
 
-            os.close(fd)
-            raise Exception('timedout')
+            log('timedout for file({0})'.format(path))
+    exit(0)

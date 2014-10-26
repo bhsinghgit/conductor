@@ -51,7 +51,8 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
 
     os.umask(0)
 
-    map(os.close, range(3))
+    os.closerange(0, 5)
+
     os.open('/dev/null', os.O_RDONLY)
 
     for path in ['stdout', 'stderr']:
@@ -61,8 +62,12 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
 
     os.open('log.{0}'.format(logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND, 0644)
 
-    lock = os.open('{0}.lock'.format(thread), os.O_CREAT|os.O_RDONLY, 0444)
-    fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    try:
+        fcntl.flock(os.open(thread + '.lock', os.O_CREAT|os.O_RDONLY, 0444),
+                    fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except:
+        log('could not lock file({0})'.format(thread))
+        exit(0)
 
     for path in os.listdir('.'):
         fields = path.split('.')
@@ -76,7 +81,6 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
     module.log  = log
     module.blob = blob
 
-    module.run(time.time() + 300)
+    module.run(time.time() + 60)
 
-    os.close(lock)
     os.system(' '.join(sys.argv) + '&')
