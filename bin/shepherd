@@ -47,7 +47,7 @@ def ymdH(subtract_hour=0):
 
 if thread in ['notifier', 'launcher', 'collector', 'shipper']:
     logseq = ymdH()
-    oldseq = ymdH(12)
+    oldseq = ymdH(6)
 
     os.umask(0)
 

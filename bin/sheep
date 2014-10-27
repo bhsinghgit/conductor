@@ -118,6 +118,9 @@ def worker(input, state, event):
     return commit_dict
 
 def http_client(method, resource, args):
+    args['appname'] = os.environ['APPNAME']
+    args['authkey'] = os.environ['AUTHKEY']
+
     req = json.dumps(args)
 
     conn.request(method, resource, req)
@@ -137,8 +140,7 @@ def http_client(method, resource, args):
 
     return response.status, response.reason, body
 
-app    = json.load(open('{0}.key'.format(os.getuid())))
-conn   = httplib.HTTPConnection(app['api_host'] + ':' + str(app['api_port']))
+conn   = httplib.HTTPConnection(os.environ['APIHOST']+':'+os.environ['APIPORT'])
 logger = Logger('worker')
 
 try:
@@ -147,7 +149,7 @@ except:
     worker_module = sys.modules['__main__']
 
 while True:
-    status, reason, msg = http_client('POST', 'lockmessage', app)
+    status, reason, msg = http_client('POST', 'lockmessage', dict())
     if (200 != status) or ('NOT_FOUND' == msg):
         break
 
@@ -178,6 +180,4 @@ while True:
     result['msgid']      = msg['msgid']
     result['workername'] = msg['workername']
 
-    http_client('POST', 'commit', dict(commit=result,
-                                       appname=app['appname'],
-                                       authkey=app['authkey']))
+    http_client('POST', 'commit', dict(commit=result))

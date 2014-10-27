@@ -14,7 +14,7 @@ def run(timeout):
             continue
 
         file_seq = int(fields[1])
-        if file_seq < ymdH(12):
+        if file_seq < ymdH(6):
             os.remove(path)
             log('removed log file({0})'.format(path))
         elif os.fork() == 0:

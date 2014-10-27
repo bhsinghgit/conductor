@@ -44,14 +44,10 @@ def run(timeout):
 
         blob(json.dumps(msg, indent=4))
         for uid, app in msg.iteritems():
-            fd = os.open(uid + '.key', os.O_CREAT|os.O_WRONLY, 0600)
-            os.write(fd, json.dumps(dict(appname=app['appname'],
-                                         authkey=app['authkey'],
-                                         api_host=app['api_host'],
-                                         api_port=app['api_port']),
-                                         indent=4, sort_keys=True))
-            os.close(fd)
-            os.chown('{0}.key'.format(uid), int(uid), int(uid))
+            os.environ['APPNAME'] = app['appname']
+            os.environ['AUTHKEY'] = app['authkey']
+            os.environ['APIHOST'] = app['api_host']
+            os.environ['APIPORT'] = str(app['api_port'])
 
             count = 0
             for i in range(app['count'] - proc_count.get(int(uid), 0)):
