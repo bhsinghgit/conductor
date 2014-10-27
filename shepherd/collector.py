@@ -41,10 +41,6 @@ def run(timeout):
 
     while time.time() < timeout:
         sock, addr = listener.accept()
-        if addr[1] > 999:
-            log('closing connection from{0}'.format(addr))
-            sock.close()
-            continue
 
         if os.fork() != 0:
             sock.close()

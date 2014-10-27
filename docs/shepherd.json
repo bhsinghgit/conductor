@@ -13,7 +13,6 @@
 
     "collector_host": "127.0.0.1",
     "collector_port": 982,
-    "shipper_port":   983,
 
     "appname": "testapp",
     "authkey": "testappkey"
