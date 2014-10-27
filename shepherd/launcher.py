@@ -11,6 +11,7 @@ def run(timeout):
     while time.time() < timeout:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(('', conf['launcher_port']))
             sock.connect((conf['notifier_host'], conf['notifier_port']))
             break
         except:

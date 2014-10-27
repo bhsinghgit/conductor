@@ -55,6 +55,10 @@ def run(timeout):
         for sock in rsock:
             if sock is listener:
                 conn, addr = sock.accept()
+                if addr[1] > 999:
+                    log('closing connection from{0}'.format(addr))
+                    conn.close()
+                    continue
     
                 fcntl.fcntl(conn, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
                 if addr[0] in host2sock:

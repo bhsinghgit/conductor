@@ -30,6 +30,7 @@ def run(timeout):
             while time.time() < timeout:
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.bind(('', conf['shipper_port']))
                     sock.connect((conf['collector_host'],
                                   conf['collector_port']))
                     log('connected to collector {0}'.format(sock.getpeername()))
