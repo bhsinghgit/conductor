@@ -7,12 +7,13 @@ import uuid
 import time
 import MySQLdb
 
-app       = flask.Flask(__name__)
-conf      = json.load(open('shepherd.json'))
-db_conn   = MySQLdb.connect(conf['mysql_host'],
-                            conf['mysql_user'],
-                            conf['mysql_password'],
-                            conf['mysql_db'])
+app     = flask.Flask(__name__)
+conf    = json.load(open('shepherd.json'))
+db_conn = MySQLdb.connect(conf['mysql_host'],
+                          conf['mysql_user'],
+                          conf['mysql_password'],
+                          conf['mysql_db'])
+
 db_cursor = db_conn.cursor()
 
 def transaction(f):
@@ -40,185 +41,153 @@ def guid():
     return hashlib.md5(str(uuid.uuid4())).hexdigest()
 
 def validate_request():
-    req = json.loads(flask.request.data)
+    req     = json.loads(flask.request.data)
+    appname = flask.request.headers.get('X-SHEPHERD-APPNAME')
+    appid   = flask.request.headers.get('X-SHEPHERD-APPID')
+    authkey = flask.request.headers.get('X-SHEPHERD-AUTHKEY')
 
-    if 'authkey' not in req:
-        raise Exception('authkey missing')
+    if not authkey:
+        raise Exception('AUTHKEY_MISSING')
 
-    if 'appname' not in req:
-        raise Exception('appname missing')
+    if not (appname or appid):
+        raise Exception('BOTH_APPNAME_APPID_MISSING')
 
-    row = query("""select appid, authkey, state
-                   from applications
-                   where appname=%s and state='active'
-                """,
-                (req['appname']))
+    if not appid:
+        appid = query("select appid from appname where appname=%s",
+                      (appname))[0][0]
+
+    row = query("select authkey, state from apps where appid=%s", (appid))
 
     if 1 != len(row):
-        raise Exception('invalid appname')
+        raise Exception('INVALID_APP')
 
-    if 'active' != row[0][2]:
-        raise Exception('application is not active')
+    if authkey != row[0][0]:
+        raise Exception('KEY_MISMATCH')
 
-    if req['authkey'] != row[0][1]:
-        raise Exception('key mismatch')
+    if 'active' != row[0][1]:
+        raise Exception('INACTIVE_APP')
 
-    req.update(dict(appid=row[0][0], client_ip=flask.request.remote_addr))
+    if not req:
+        req = dict()
+
+    req.update(dict(appid=appid, client_ip=flask.request.remote_addr))
 
     return req
-
-@app.route('/applications', methods=['POST'])
-@transaction
-def add_app():
-    req = json.loads(flask.request.data)
-    app = req['app']
-
-    if '127.0.0.1' != flask.request.remote_addr:
-        raise Exception('operation not allowed from remote machine')
-
-    query("""insert into applications
-             set appname=%s, authkey=%s, state='active', type=%s, path=%s
-          """,
-          (req['appname'], req['authkey'], app['type'], app['path']))
-
-    return "OK"
-
-@app.route('/applications', methods=['DELETE'])
-@transaction
-def delete_app():
-    req = validate_request()
-
-    if '127.0.0.1' != req['client_ip']:
-        raise Exception('operation not allowed from remote machine')
-
-    query("delete from applications where appid=%s", (req['appid']))
-    query("delete from hosts        where appid=%s", (req['appid']))
-    query("delete from pools        where appid=%s", (req['appid']))
-    query("delete from locks        where appid=%s", (req['appid']))
-    query("delete from workers      where appid=%s", (req['appid']))
-    query("delete from messages     where appid=%s", (req['appid']))
-
-    return "OK"
-
-@app.route('/hosts', methods=['POST'])
-@transaction
-def add_ip():
-    req = validate_request()
-  
-    query("""insert into hosts set appid=%s, ip=%s, count=%s""",
-          (req['appid'], req['client_ip'], req['host']['count']))
-
-    return "OK"
-
-@app.route('/pools', methods=['POST'])
-@transaction
-def add_pool():
-    req = validate_request()
-  
-    query("""insert into pools set appid=%s, pool=%s, ip=%s""",
-          (req['appid'], req['pool']['pool'], req['client_ip']))
-
-    return "OK"
 
 @app.route('/applications', methods=['GET'])
 @transaction
 def get_apps():
-    sql = """select appid, appname, authkey, type, path
-             from applications
-             where state='active'
-          """
+    sql = "select appid, authkey, path from apps where state='active'"
+
     ret = dict()
-    for appid, appname, authkey, type, path in query(sql):
-        hosts = query("select ip, count from hosts where appid=%s", (appid))
+    for appid, authkey, path in query(sql):
+        hosts = query("""select ip, count_async, count_sync
+                         from hosts where appid=%s
+                      """, (appid))
         pools = query("select pool, ip from pools where appid=%s", (appid))
 
         pool_dict = dict()
         for pool, ip in pools:
             pool_dict.setdefault(pool, list()).append(ip)
 
-        ret[appid] = dict(appname=appname,
-                          authkey=authkey,
-                          type=type,
+        ret[appid] = dict(authkey=authkey,
                           path=path,
-                          hosts=dict([(h[0], h[1]) for h in hosts]),
+                          hosts=dict([(h[0], dict(async=h[1], sync=h[2]))
+                                     for h in hosts]),
                           pools=pool_dict)
     return ret
 
-@app.route('/workers', methods=['POST'])
+def insert_worker(appid, input, pool, priority):
+    query("""insert into workers
+             set appid=%s, state='active',
+                 input=%s, continuation=%s
+          """, (appid, input, base64.b64encode('')))
+    workerid = query("select last_insert_id()")[0][0]
+    query("""insert into messages
+             set workerid=%s, appid=%s, pool=%s, state='head',
+                 priority=%s, code='init'
+          """, (workerid, appid, pool, priority))
+
+    return workerid
+
+@app.route('/workers', methods=['POST', 'PUT'])
 @transaction
 def add_worker():
-    req    = validate_request()
-    worker = req['worker']
-
-    workername = worker.get('workername', guid())
-    pool       = worker.get('pool', 'default')
-    priority   = worker.get('priority', 128)
-
-    query("""delete from messages where appid=%s and workername=%s""",
-          (req['appid'], workername))
-    query("""insert into workers
-             set workername=%s, appid=%s, state='active',
-             input=%s, continuation=%s
-          """,
-          (workername, req['appid'], worker['input'], base64.b64encode('')))
-    query("""insert into messages
-             set workername=%s, appid=%s, pool=%s, state='head',
-                 priority=%s, code='init'
-          """,
-          (workername, req['appid'], pool, priority))
-
-    return dict(workername=workername)
-
-@app.route('/worker_status', methods=['POST'])
-@transaction
-def get_worker_status():
     req = validate_request()
 
-    rows = query("select status from workers where workername=%s",
-                 (req['workername']))
+    appid      = req['appid']
+    pool       = req.get('pool', 'default')
+    priority   = req.get('priority', 128)
+
+    workerid = insert_worker(appid, req['input'], pool, priority)
+
+    if 'PUT' == flask.request.method:
+        query("insert into workername set workername=%s, workerid=%s",
+              (req['workername'], workerid))
+        return dict(workername=req['workername'])
+
+    return dict(workerid=workerid)
+
+@app.route('/workers/<workerid>', methods=['GET'])
+@transaction
+def get_worker_status(workerid):
+    req = validate_request()
+
+    if not workerid.isdigit():
+        workerid = query("select workerid from workername where workername=%s",
+                         (workerid))[0][0]
+
+    rows = query("select status from workers where workerid=%s and appid=%s",
+                 (workerid, req['appid']))
+
     if 1 != len(rows):
         return dict(status='NOT_FOUND')
 
     return dict(status=rows[0][0])
 
-def mark_head(appid, workername):
+def mark_head(appid, workerid):
     msgid = query("""select msgid from messages
-                     where appid=%s and workername=%s
+                     where appid=%s and workerid=%s
                      order by timestamp, msgid
                      limit 1
                   """,
-                  (appid, workername))
+                  (appid, workerid))
     if len(msgid) > 0:
         query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
 
 @app.route('/messages', methods=['POST'])
 @transaction
 def add_msg():
-    req = validate_request()
-    msg = req['msg']
+    req      = validate_request()
+    pool     = req.get('pool', 'default')
+    priority = req.get('priority', 128)
+    data     = req.get('data', None)
+    delay    = req.get('delay', 0)
 
-    pool     = msg.get('pool', 'default')
-    priority = msg.get('priority', 128)
-    data     = msg.get('data', None)
-    delay    = msg.get('delay', 0)
+    if workerid not in req:
+        rows = query("""select workerid from workername
+                        where workername=%s""", (req['workername']))
+        if 1 != len(rows):
+            raise Exception('INVALID_WORKERNAME')
 
-    appid = query("""select appid from workers
-                     where workername=%s and state != 'done'
-                  """,
-                  (msg['workername']))
-    if 1 != len(appid):
-        raise Exception('invalid workername or state')
-    else:
-        appid = appid[0][0]
+        req['workerid'] = rows[0][0]
+
+    rows = query("""select appid from workers
+                    where workerid=%s and state != 'done'
+                 """, (req['workerid']))
+    if 1 != len(rows):
+        raise Exception('INVALID_WORKER_STATE')
+
+    appid = rows[0][0]
 
     query("""insert into messages
-             set workername=%s, appid=%s, pool=%s, state='queued',
+             set workerid=%s, appid=%s, pool=%s, state='queued',
                  priority=%s, code=%s, data=%s,
                  timestamp=now()+interval %s second
           """,
-          (msg['workername'], appid, pool, priority, msg['code'], data, delay))
+          (req['workerid'], appid, pool, priority, req['code'], data, delay))
 
-    mark_head(appid, msg['workername'])
+    mark_head(appid, msg['workerid'])
 
     return "OK"
 
@@ -238,45 +207,44 @@ def get_msgs():
 @transaction
 def commit():
     req = validate_request()
-    com = req['commit']
 
-    pool = query("select pool from messages where msgid=%s", (com['msgid']))
-    query("delete from messages where msgid=%s", (com['msgid']))
+    pool = query("select pool from messages where msgid=%s", (req['msgid']))
+    query("delete from messages where msgid=%s", (req['msgid']))
 
-    pool = com.get('pool', pool[0][0])
+    pool = req.get('pool', pool[0][0])
 
-    if 'state' not in com:
-        if 'exception' in com:
-            workflow_status = com['exception']
+    if 'state' not in req:
+        if 'exception' in req:
+            workflow_status = req['exception']
             workflow_state  = 'exception'
-        elif 'status' in com:
-            workflow_status = com['status']
+        elif 'status' in req:
+            workflow_status = req['status']
             workflow_state  = 'done'
         else:
             workflow_status = 'unknown'
             workflow_state  = 'exception'
 
-        query("""delete from messages where appid=%s and workername=%s""",
-              (req['appid'], com['workername']))
+        query("""delete from messages where appid=%s and workerid=%s""",
+              (req['appid'], req['workerid']))
         query("""update workers set status=%s, continuation=null, state=%s
-                 where workername=%s
+                 where workerid=%s
               """,
-              (workflow_status, workflow_state, com['workername']))
+              (workflow_status, workflow_state, req['workerid']))
         return "OK"
 
     query("""delete from messages
-             where appid=%s and workername=%s and code='alarm'
+             where appid=%s and workerid=%s and code='alarm'
           """,
-          (req['appid'], com['workername']))
+          (req['appid'], req['workerid']))
 
-    def insert_message(appid, workername, pool, code, data=None):
+    def insert_message(appid, workerid, pool, code, data=None):
         query("""insert into messages
-                 set workername=%s, appid=%s,
+                 set workerid=%s, appid=%s,
                  pool=%s, state='queued', code=%s, data=%s
-              """, (workername, appid, pool, code, data))
+              """, (workerid, appid, pool, code, data))
 
     def get_lock_holder(lockname):
-        row = query("""select appid, workername from locks
+        row = query("""select appid, workerid from locks
                        where lockname=%s order by sequence limit 1
                     """, (lockname))
         if len(row) < 1:
@@ -284,80 +252,85 @@ def commit():
         else:
             return row[0][0], row[0][1]
 
-    if 'lock' in com:
-        for lockname in set(com['lock']):
-            query("insert into locks set lockname=%s, appid=%s, workername=%s",
-                 (lockname, req['appid'], com['workername']))
+    if 'lock' in req:
+        for lockname in set(req['lock']):
+            query("insert into locks set lockname=%s, appid=%s, workerid=%s",
+                 (lockname, req['appid'], req['workerid']))
 
         counter = 0
-        for lockname in set(com['lock']):
-            row = query("""select workername from locks
+        for lockname in set(req['lock']):
+            row = query("""select workerid from locks
                            where lockname=%s order by sequence limit 1
                         """, (lockname))
 
-            if row[0][0] == com['workername']:
+            if row[0][0] == req['workerid']:
                 counter += 1
 
-        if len(set(com['lock'])) == counter:
-            insert_message(req['appid'], com['workername'], pool, 'locked')
+        if len(set(req['lock'])) == counter:
+            insert_message(req['appid'], req['workerid'], pool, 'locked')
 
-    if 'unlock' in com:
-        for lockname in set(com['unlock']):
+    if 'unlock' in req:
+        for lockname in set(req['unlock']):
             query("""delete from locks
-                     where lockname=%s and appid=%s and workername=%s
+                     where lockname=%s and appid=%s and workerid=%s
                   """,
-                  (lockname, req['appid'], com['workername']))
+                  (lockname, req['appid'], req['workerid']))
 
-        for lockname in set(com['unlock']):
-            other_appid, other_workername = get_lock_holder(lockname)
+        for lockname in set(req['unlock']):
+            other_appid, other_workerid = get_lock_holder(lockname)
 
-            if other_workername:
+            if other_workerid:
                 locks = query("""select lockname from locks
-                                 where appid=%s and workername=%s
-                              """, (other_appid, other_workername))
+                                 where appid=%s and workerid=%s
+                              """, (other_appid, other_workerid))
 
                 counter = 0
                 for otherlock in locks:
-                    tmp_appid, tmp_workername = get_lock_holder(otherlock)
-                    if other_workername == tmp_workername:
+                    tmp_appid, tmp_workerid = get_lock_holder(otherlock)
+                    if other_workerid == tmp_workerid:
                         counter += 1
 
                 if len(locks) == counter:
-                    insert_message(other_appid, other_workername,
+                    insert_message(other_appid, other_workerid,
                                    'default', 'locked')
-                    mark_head(other_appid, other_workername)
+                    mark_head(other_appid, other_workerid)
 
-    if 'message' in com:
-        for msg in com['message']:
-            appid = query("select appid from workers where workername=%s",
-                          (msg['workername']))
+    if 'message' in req:
+        for msg in req['message']:
+            appid = query("select appid from workers where workerid=%s",
+                          (req['workerid']))
             if 1 == len(appid):
-                insert_message(appid[0][0], msg['workername'],
+                if 'workerid' not in msg:
+                    msg['workerid'] = query("""select workerid from workername
+                                               where workername=%s
+                                            """, (msg['workername']))[0][0]
+
+                insert_message(appid[0][0], msg['workerid'],
                     msg.get('pool', 'default'),
                     msg['code'],
                     msg.get('data', None))
-                mark_head(appid[0][0], msg['workername'])
+                mark_head(appid[0][0], msg['workerid'])
 
-    if 'alarm' in com:
-        if int(com['alarm']) < 1:
-            com['alarm'] = 0
+    if 'alarm' in req:
+        if int(req['alarm']) < 1:
+            req['alarm'] = 0
 
         query("""insert into messages
-                 set workername=%s, appid=%s, pool=%s, state='queued',
+                 set workerid=%s, appid=%s, pool=%s, state='queued',
                      code='alarm', timestamp=now()+interval %s second""",
-              (com['workername'], req['appid'], pool, com['alarm']))
+              (req['workerid'], req['appid'], pool, req['alarm']))
 
-    query("update workers set status=%s, continuation=%s where workername=%s",
-          (com['status'], com['continuation'], com['workername']))
+    query("update workers set status=%s, continuation=%s where workerid=%s",
+          (req['status'], req['continuation'], req['workerid']))
 
-    mark_head(req['appid'], com['workername'])
+    mark_head(req['appid'], req['workerid'])
 
     return "OK"
 
 @app.route('/lockmessage', methods=['POST'])
 @transaction
 def lockmessage():
-    sql1 = """select msgid, workername, code, data from messages
+    sql1 = """select msgid, workerid, code, data from messages
               where timestamp < now() and state='head' and
                     appid=%s and pool=%s and lock_ip is null
               order by priority limit 1
@@ -367,7 +340,8 @@ def lockmessage():
     appid = req['appid']
 
     hosts = dict([(r[0], r[1]) for r in
-                  query("select ip, count from hosts where appid=%s", (appid))])
+                  query("select ip, count_async from hosts where appid=%s",
+                        (appid))])
 
     pools = dict()
     for pool, ip in query("select pool, ip from pools where appid=%s", (appid)):
@@ -379,20 +353,20 @@ def lockmessage():
         for ip in set(ip_list):
             rows = query(sql1, (req['appid'], pool))
             if len(rows) > 0:
-                msgid, workername, code, data = rows[0]
+                msgid, workerid, code, data = rows[0]
 
                 query("update messages set lock_ip=%s where msgid=%s",
                       (req['client_ip'], msgid))
                 query("""update workers set session=session+1
-                         where workername=%s
-                      """, (workername))
+                         where workerid=%s
+                      """, (workerid))
 
                 input, continuation, session = query(
                     """select input, continuation, session from workers
-                       where workername=%s """, (workername))[0]
+                       where workerid=%s """, (workerid))[0]
 
                 result = dict(msgid      = msgid,
-                            workername   = workername,
+                            workerid     = workerid,
                             input        = input,
                             session      = session,
                             continuation = continuation,

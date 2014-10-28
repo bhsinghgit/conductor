@@ -134,13 +134,13 @@ def run(timeout):
                 while count > 0:
                     start_count = count
                     for ip in ip_list:
-                        allocation.setdefault(ip, dict()).setdefault(uid, 0)
+                      allocation.setdefault(ip, dict()).setdefault(uid, 0)
     
-                        if allocation[ip][uid] < apps[uid]['hosts'][ip]:
-                            allocation[ip][uid] += 1
-                            count -= 1
-                            if 0 == count:
-                                break
+                      if allocation[ip][uid] < apps[uid]['hosts'][ip]['async']:
+                          allocation[ip][uid] += 1
+                          count -= 1
+                          if 0 == count:
+                              break
                     if count == start_count:
                         break
 
@@ -158,9 +158,9 @@ def run(timeout):
                 if allocation[ip][uid] < 1:
                     continue
 
-                apps[uid]['count']    = allocation[ip][uid]
-                apps[uid]['api_host'] = conf['api_host']
-                apps[uid]['api_port'] = conf['api_port']
+                apps[uid]['async_count'] = allocation[ip][uid]
+                apps[uid]['api_host']    = conf['api_host']
+                apps[uid]['api_port']    = conf['api_port']
                 apps[uid].pop('hosts')
                 apps[uid].pop('pools', None)
                 request_msg[uid] = apps[uid]

@@ -11,7 +11,7 @@ class Logger(object):
         if not session:
             session = int(time.time())
 
-        self.session  = "%s.%010d.%06d" % (thread, session, os.getpid())
+        self.session  = "worker-%s.%010d.%06d" % (thread, session, os.getpid())
         self.sequence = 0
 
     def append(self, tag, msg):
@@ -118,12 +118,13 @@ def worker(input, state, event):
     return commit_dict
 
 def http_client(method, resource, args):
-    args['appname'] = os.environ['APPNAME']
-    args['authkey'] = os.environ['AUTHKEY']
+    headers = {
+        'X-SHEPHERD-APPID'   : os.environ['APPID'],
+        'X-SHEPHERD-AUTHKEY' : os.environ['AUTHKEY']
+    }
 
-    req = json.dumps(args)
-
-    conn.request(method, resource, req)
+    args = json.dumps(args)
+    conn.request(method, resource, args, headers)
 
     response = conn.getresponse()
     res      = response.read()
@@ -131,7 +132,7 @@ def http_client(method, resource, args):
     logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
                     'request({4}) response({5})').format(
         method, resource, response.status, response.reason,
-        logger.blob(req), logger.blob(res)))
+        logger.blob(args), logger.blob(res)))
 
     try:
         body = json.loads(res)
@@ -157,7 +158,7 @@ while True:
     if 'data' in msg:
         event['data'] = base64.b64decode(msg['data'])
 
-    worker_logger = Logger(msg['workername'], msg['session'])
+    worker_logger = Logger(msg['workerid'], msg['session'])
     worker_module.log  = worker_logger.log
     worker_module.blob = worker_logger.blob
     result = worker_module.worker(base64.b64decode(msg['input']),
@@ -165,7 +166,7 @@ while True:
                                   event)
 
     if result is None:
-        result = dict(status='worker crashed')
+        result = dict(status='WORKER_CRASHED')
 
     if 'status' in result:
         result['status'] = base64.b64encode(result['status'])
@@ -177,7 +178,7 @@ while True:
         if 'data' in m:
             m['data'] = base64.b64encode(m['data'])
 
-    result['msgid']      = msg['msgid']
-    result['workername'] = msg['workername']
+    result['msgid']    = msg['msgid']
+    result['workerid'] = msg['workerid']
 
-    http_client('POST', 'commit', dict(commit=result))
+    http_client('POST', 'commit', result)

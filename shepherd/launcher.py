@@ -45,13 +45,13 @@ def run(timeout):
 
         blob(json.dumps(msg, indent=4))
         for uid, app in msg.iteritems():
-            os.environ['APPNAME'] = app['appname']
             os.environ['AUTHKEY'] = app['authkey']
+            os.environ['APPID']   = uid
             os.environ['APIHOST'] = app['api_host']
             os.environ['APIPORT'] = str(app['api_port'])
 
             count = 0
-            for i in range(app['count'] - proc_count.get(int(uid), 0)):
+            for i in range(app['async_count'] - proc_count.get(int(uid), 0)):
                 if 0 == os.fork():
                     sock.close()
                     os.close(4)
@@ -60,15 +60,11 @@ def run(timeout):
                     os.setgid(int(uid))
                     os.setuid(int(uid))
 
-                    if 'worker' == app['type']:
-                        command   = os.path.join(app['path'])
-                        dirname   = os.path.dirname(sys.argv[0])
-                        worker    = os.path.join(dirname, 'sheep')
-                        arguments = [command, worker]
-                    elif 'rpc' == app['type']:
-                        pass
+                    command = os.path.join(app['path'])
+                    dirname = os.path.dirname(sys.argv[0])
+                    worker  = os.path.join(dirname, 'sheep')
 
-                    os.execv(command, arguments)
+                    os.execv(command, [command, worker])
                 else:
                     count += 1
             log('spawned count({0}) procs for uid({1})'.format(count, uid))
