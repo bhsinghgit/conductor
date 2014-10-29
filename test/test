@@ -12,8 +12,8 @@ conn = httplib.HTTPConnection(conf['api_host'], conf['api_port'])
 
 def http_client(method, resource, args=None):
     header = {
-        'X-SHEPHERD-APPID'   : 100000,
-        'X-SHEPHERD-AUTHKEY' : 'authkey'
+        'X-SHEPHERD-APPNAME' : 'testapp',
+        'X-SHEPHERD-AUTHKEY' : 'testkey'
     }
 
     conn.request(method, resource, json.dumps(args), header)

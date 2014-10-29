@@ -44,34 +44,38 @@ class Logger(object):
         self.append(len(b64enc), b64enc)
         return self.sequence
 
-def worker(input, state, event):
-    input = json.loads(input)
+def worker(state, event):
+    state = json.loads(state)
 
     if 'data' in event:
         event['data'] = json.loads(event['data'])
 
     if 'init' == event['code']:
+        workflow     = state['workflow']
+        input        = state['input']
         control_info = dict(state='init', seq=0)
-        continuation  = None
+        continuation = None
     else:
-        state = json.loads(state)
+        workflow     = state['workflow']
+        input        = state['input']
         control_info = state['control_info']
         continuation = state['continuation']
+
         control_info['seq'] += 1
 
     current_state = control_info['state']
 
     try:
-        module      = __import__(input['workflow'])
+        module      = __import__(workflow)
         module.log  = log
         module.blob = blob
 
         result = (None,)
         method = getattr(module, current_state)
         if 'handler' == current_state:
-            result = method(input['input'], continuation, event)
+            result = method(input, continuation, event)
         else:
-            result = method(input['input'], continuation)
+            result = method(input, continuation)
 
         if len(result) < 2:
             raise Exception('invalid return value')
@@ -91,7 +95,9 @@ def worker(input, state, event):
 
     next_state  = control_info['state']
     commit_dict = dict(status=json.dumps(result[1]),
-                       state=json.dumps(dict(control_info=control_info,
+                       state=json.dumps(dict(workflow=workflow,
+                                             input=input,
+                                             control_info=control_info,
                                              continuation=result[2])))
 
     if 'lock' == result[0]:
@@ -161,9 +167,7 @@ while True:
     worker_logger = Logger(msg['workerid'], msg['session'])
     worker_module.log  = worker_logger.log
     worker_module.blob = worker_logger.blob
-    result = worker_module.worker(base64.b64decode(msg['input']),
-                                  base64.b64decode(msg['continuation']),
-                                  event)
+    result = worker_module.worker(base64.b64decode(msg['continuation']), event)
 
     if result is None:
         result = dict(status='WORKER_CRASHED')

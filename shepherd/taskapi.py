@@ -16,6 +16,9 @@ db_conn = MySQLdb.connect(conf['mysql_host'],
 
 db_cursor = db_conn.cursor()
 
+def throw(response_code, error_msg):
+    raise Exception((response_code, error_msg))
+
 def transaction(f):
     @functools.wraps(f)
     def f1(*args, **kwargs):
@@ -24,11 +27,15 @@ def transaction(f):
             db_conn.commit()
             status = 200
         except Exception as e:
-            response = str(e)
             db_conn.rollback()
-            status = 400
+            if type(e) is tuple:
+                status   = e[0]
+                response = e[1]
+            else:
+                status   = 500
+                response = str(e)
 
-        return flask.Response(json.dumps(response),
+        return flask.Response(json.dumps(response, indent=4, sort_keys=True),
                               status,
                               mimetype='application/json')
     return f1
@@ -47,10 +54,10 @@ def validate_request():
     authkey = flask.request.headers.get('X-SHEPHERD-AUTHKEY')
 
     if not authkey:
-        raise Exception('AUTHKEY_MISSING')
+        throw(401, 'AUTHKEY_MISSING')
 
     if not (appname or appid):
-        raise Exception('BOTH_APPNAME_APPID_MISSING')
+        throw(400, 'BOTH_APPNAME_APPID_MISSING')
 
     if not appid:
         appid = query("select appid from appname where appname=%s",
@@ -59,13 +66,13 @@ def validate_request():
     row = query("select authkey, state from apps where appid=%s", (appid))
 
     if 1 != len(row):
-        raise Exception('INVALID_APP')
+        throw(400, 'INVALID_APP')
 
     if authkey != row[0][0]:
-        raise Exception('KEY_MISMATCH')
+        throw(403, 'KEY_MISMATCH')
 
     if 'active' != row[0][1]:
-        raise Exception('INACTIVE_APP')
+        throw(404, 'INACTIVE_APP')
 
     if not req:
         req = dict()
@@ -97,33 +104,31 @@ def get_apps():
                           pools=pool_dict)
     return ret
 
-def insert_worker(appid, input, pool, priority):
-    query("""insert into workers
-             set appid=%s, state='active',
-                 input=%s, continuation=%s
-          """, (appid, input, base64.b64encode('')))
+def insert_worker(appid, continuation, pool, priority):
+    query("insert into workers set appid=%s, state='active', continuation=%s",
+          (appid, continuation))
     workerid = query("select last_insert_id()")[0][0]
     query("""insert into messages
-             set workerid=%s, appid=%s, pool=%s, state='head',
+             set workerid=%s, appid=%s, senderappid=%s, senderworkerid=%s,
+                 pool=%s, state='head',
                  priority=%s, code='init'
-          """, (workerid, appid, pool, priority))
+          """, (workerid, appid, workerid, appid, pool, priority))
 
     return workerid
 
 @app.route('/workers', methods=['POST', 'PUT'])
 @transaction
 def add_worker():
-    req = validate_request()
-
-    appid      = req['appid']
-    pool       = req.get('pool', 'default')
-    priority   = req.get('priority', 128)
+    req      = validate_request()
+    appid    = req['appid']
+    pool     = req.get('pool', 'default')
+    priority = req.get('priority', 128)
 
     workerid = insert_worker(appid, req['input'], pool, priority)
 
     if 'PUT' == flask.request.method:
-        query("insert into workername set workername=%s, workerid=%s",
-              (req['workername'], workerid))
+        query("insert into workername set appid=%s, workername=%s, workerid=%s",
+              (req['appid'], req['workername'], workerid))
         return dict(workername=req['workername'])
 
     return dict(workerid=workerid)
@@ -134,14 +139,15 @@ def get_worker_status(workerid):
     req = validate_request()
 
     if not workerid.isdigit():
-        workerid = query("select workerid from workername where workername=%s",
-                         (workerid))[0][0]
+        workerid = query("""select workerid from workername
+                            where appid=%s and workername=%s
+                         """, (req['appid'], workerid))[0][0]
 
     rows = query("select status from workers where workerid=%s and appid=%s",
                  (workerid, req['appid']))
 
     if 1 != len(rows):
-        return dict(status='NOT_FOUND')
+        throw(404, 'WORKER_NOT_FOUND')
 
     return dict(status=rows[0][0])
 
@@ -155,9 +161,9 @@ def mark_head(appid, workerid):
     if len(msgid) > 0:
         query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
 
-@app.route('/messages', methods=['POST'])
+@app.route('/messages/<workername>', methods=['POST'])
 @transaction
-def add_msg():
+def add_msg(workername):
     req      = validate_request()
     pool     = req.get('pool', 'default')
     priority = req.get('priority', 128)
@@ -213,7 +219,7 @@ def commit():
 
     pool = req.get('pool', pool[0][0])
 
-    if 'state' not in req:
+    if 'continuation' not in req:
         if 'exception' in req:
             workflow_status = req['exception']
             workflow_state  = 'exception'
@@ -227,9 +233,9 @@ def commit():
         query("""delete from messages where appid=%s and workerid=%s""",
               (req['appid'], req['workerid']))
         query("""update workers set status=%s, continuation=null, state=%s
-                 where workerid=%s
+                 where workerid=%s and appid=%s
               """,
-              (workflow_status, workflow_state, req['workerid']))
+              (workflow_status, workflow_state, req['workerid'], req['appid']))
         return "OK"
 
     query("""delete from messages
@@ -240,8 +246,10 @@ def commit():
     def insert_message(appid, workerid, pool, code, data=None):
         query("""insert into messages
                  set workerid=%s, appid=%s,
-                 pool=%s, state='queued', code=%s, data=%s
-              """, (workerid, appid, pool, code, data))
+                     senderworkerid=%s, senderappid=%s,
+                     pool=%s, state='queued', code=%s, data=%s
+              """, (workerid, appid, req['workerid'], req['appid'],
+                    pool, code, data))
 
     def get_lock_holder(lockname):
         row = query("""select appid, workerid from locks
@@ -316,9 +324,11 @@ def commit():
             req['alarm'] = 0
 
         query("""insert into messages
-                 set workerid=%s, appid=%s, pool=%s, state='queued',
+                 set workerid=%s, appid=%s, senderworkerid=%s, senderappid=%s,
+                     pool=%s, state='queued',
                      code='alarm', timestamp=now()+interval %s second""",
-              (req['workerid'], req['appid'], pool, req['alarm']))
+              (req['workerid'], req['appid'], req['workerid'], req['appid'],
+               pool, req['alarm']))
 
     query("update workers set status=%s, continuation=%s where workerid=%s",
           (req['status'], req['continuation'], req['workerid']))
@@ -361,17 +371,15 @@ def lockmessage():
                          where workerid=%s
                       """, (workerid))
 
-                input, continuation, session = query(
-                    """select input, continuation, session from workers
-                       where workerid=%s """, (workerid))[0]
+                continuation, session = query("""select continuation, session
+                    from workers where workerid=%s """, (workerid))[0]
 
-                result = dict(msgid      = msgid,
-                            workerid     = workerid,
-                            input        = input,
-                            session      = session,
-                            continuation = continuation,
-                            code         = code,
-                            pool         = pool)
+                result = dict(msgid        = msgid,
+                              workerid     = workerid,
+                              session      = session,
+                              continuation = continuation,
+                              code         = code,
+                              pool         = pool)
 
                 if data:
                     result['data'] = data
