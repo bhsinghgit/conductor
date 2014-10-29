@@ -21,7 +21,8 @@ def handler(input, state, event):
 
         messages = list()
         for i in range(input['expected']):
-            messages.append(dict(workername='sheep-' + str(i),
+            messages.append(dict(appname='testapp',
+                                 workername='sheep-' + str(i),
                                  code='signal'))
 
         return ('message', 'sent signal', state, messages)
@@ -49,12 +50,23 @@ def handler(input, state, event):
                 if value != 5:
                     return ('done', 'FAIL')
 
-            return ('done', 'PASS')
+            return ('done', 'WAITING', state)
 
         return ('continue', 'message processed', state)
 
+    if 'report' == event['code']:
+        state['result'] = 'PASS'
+        return ('done', 'REPORTING', state)
+
 def done(input, state):
-    return ('ok', state)
+    if 'result' in state:
+        return ('ok', state['result'])
+
+    if 'sleep_count' not in state:
+        state['sleep_count'] = 0
+
+    state['sleep_count'] += 1
+    return ('retry', 'SLEEPING_FOR_SIGNAL_'+str(state['sleep_count']), state, 5)
 
 workflow = {
     ('handler', 'done'): 'done'

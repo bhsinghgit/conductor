@@ -9,7 +9,7 @@ create table apps(
     timestamp timestamp
 ) engine=innodb auto_increment=100000;
 
-create table appname(
+create table appnames(
     appname char(64) primary key,
     appid   int unsigned,
     foreign key(appid) references apps(appid)
@@ -51,7 +51,7 @@ create table workers(
     foreign key(appid) references apps(appid)
 ) engine=innodb;
 
-create table workername(
+create table workernames(
     appid      int unsigned not null,
     workername char(64)     not null,
     workerid   bigint unsigned,
@@ -74,15 +74,15 @@ create table messages(
     timestamp      timestamp default current_timestamp
 ) engine=innodb;
 
-create index msg1 on messages(timestamp, state, appid, pool, lock_ip, priority);
-create index msg2 on messages(appid, workerid, timestamp, msgid);
+create index msg1 on messages(timestamp, state, lock_ip, appid, pool);
+create index msg2 on messages(appid, workerid, msgid);
 
 insert into apps set
     authkey='testkey',
     state='active',
     path='/tmp/abcd/bin/python';
 
-insert into appname set
+insert into appnames set
     appname='testapp',
     appid=100000;
 

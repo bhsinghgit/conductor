@@ -144,7 +144,6 @@ def run(timeout):
                     if count == start_count:
                         break
 
-        blob(json.dumps(allocation, indent=4))
         for sock in context:
             if (sock in isock) or (sock in osock):
                 continue 
@@ -165,6 +164,8 @@ def run(timeout):
                 apps[uid].pop('pools', None)
                 request_msg[uid] = apps[uid]
 
+            log('sent to {0} blob({1})'.format(
+                ip, blob(json.dumps(request_msg))))
             context[sock]['bytes'] = json.dumps(request_msg)
             osock.add(sock)
 

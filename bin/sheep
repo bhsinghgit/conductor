@@ -70,8 +70,13 @@ def worker(state, event):
         module.log  = log
         module.blob = blob
 
+        if event['code'] in ['alarm', 'init', 'locked', 'unlocked']:
+            method = getattr(module, current_state)
+        else:
+            method = getattr(module, 'handler')
+            current_state = 'handler'
+
         result = (None,)
-        method = getattr(module, current_state)
         if 'handler' == current_state:
             result = method(input, continuation, event)
         else:

@@ -60,7 +60,7 @@ def validate_request():
         throw(400, 'BOTH_APPNAME_APPID_MISSING')
 
     if not appid:
-        appid = query("select appid from appname where appname=%s",
+        appid = query("select appid from appnames where appname=%s",
                       (appname))[0][0]
 
     row = query("select authkey, state from apps where appid=%s", (appid))
@@ -127,7 +127,7 @@ def add_worker():
     workerid = insert_worker(appid, req['input'], pool, priority)
 
     if 'PUT' == flask.request.method:
-        query("insert into workername set appid=%s, workername=%s, workerid=%s",
+        query("insert into workernames set appid=%s, workername=%s,workerid=%s",
               (req['appid'], req['workername'], workerid))
         return dict(workername=req['workername'])
 
@@ -139,7 +139,7 @@ def get_worker_status(workerid):
     req = validate_request()
 
     if not workerid.isdigit():
-        workerid = query("""select workerid from workername
+        workerid = query("""select workerid from workernames
                             where appid=%s and workername=%s
                          """, (req['appid'], workerid))[0][0]
 
@@ -150,52 +150,6 @@ def get_worker_status(workerid):
         throw(404, 'WORKER_NOT_FOUND')
 
     return dict(status=rows[0][0])
-
-def mark_head(appid, workerid):
-    msgid = query("""select msgid from messages
-                     where appid=%s and workerid=%s
-                     order by timestamp, msgid
-                     limit 1
-                  """,
-                  (appid, workerid))
-    if len(msgid) > 0:
-        query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
-
-@app.route('/messages/<workername>', methods=['POST'])
-@transaction
-def add_msg(workername):
-    req      = validate_request()
-    pool     = req.get('pool', 'default')
-    priority = req.get('priority', 128)
-    data     = req.get('data', None)
-    delay    = req.get('delay', 0)
-
-    if workerid not in req:
-        rows = query("""select workerid from workername
-                        where workername=%s""", (req['workername']))
-        if 1 != len(rows):
-            raise Exception('INVALID_WORKERNAME')
-
-        req['workerid'] = rows[0][0]
-
-    rows = query("""select appid from workers
-                    where workerid=%s and state != 'done'
-                 """, (req['workerid']))
-    if 1 != len(rows):
-        raise Exception('INVALID_WORKER_STATE')
-
-    appid = rows[0][0]
-
-    query("""insert into messages
-             set workerid=%s, appid=%s, pool=%s, state='queued',
-                 priority=%s, code=%s, data=%s,
-                 timestamp=now()+interval %s second
-          """,
-          (req['workerid'], appid, pool, priority, req['code'], data, delay))
-
-    mark_head(appid, msg['workerid'])
-
-    return "OK"
 
 @app.route('/messages', methods=['GET'])
 @transaction
@@ -208,6 +162,60 @@ def get_msgs():
     for appid, pool, count in query(sql):
         ret.setdefault(appid, dict())[pool] = count
     return ret
+
+def mark_head(appid, workerid):
+    msgid = query("""select msgid from messages
+                     where appid=%s and workerid=%s
+                     order by msgid limit 1
+                  """,
+                  (appid, workerid))
+    if len(msgid) > 0:
+        query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
+
+@app.route('/messages/<appid>/<workerid>', methods=['POST'])
+@transaction
+def add_msg(appid, workerid):
+    req      = validate_request()
+    pool     = req.get('pool', 'default')
+    priority = req.get('priority', 128)
+    data     = req.get('data', None)
+    delay    = req.get('delay', 0)
+
+    if not appid.isdigit():
+        rows = query("select appid from appnames where appname=%s", (appid))
+        if 1 != len(rows):
+            throw(404, 'INVALID_APPNAME')
+
+        appid = rows[0][0]
+
+    if not workerid.isdigit():
+        rows = query("""select workerid from workernames
+                        where appid=%s and workername=%s
+                     """, (appid, workerid))
+        if 1 != len(rows):
+            throw(404, 'INVALID_WORKERNAME')
+
+        workerid = rows[0][0]
+
+    rows = query("""select appid from workers
+                    where workerid=%s and state != 'done'
+                 """, (workerid))
+    if 1 != len(rows):
+        throw(404, 'INVALID_WORKER_STATE')
+
+    query("""insert into messages
+             set workerid=%s, appid=%s,
+                 senderworkerid=%s, senderappid=%s,
+                 pool=%s, state='queued',
+                 priority=%s, code=%s, data=%s,
+                 timestamp=now()+interval %s second
+          """,
+          (workerid, appid, 0, req['appid'],
+           pool, priority, req['code'], data, delay))
+
+    mark_head(appid, workerid)
+
+    return "OK"
 
 @app.route('/commit', methods=['POST'])
 @transaction
@@ -305,19 +313,20 @@ def commit():
 
     if 'message' in req:
         for msg in req['message']:
-            appid = query("select appid from workers where workerid=%s",
-                          (req['workerid']))
-            if 1 == len(appid):
-                if 'workerid' not in msg:
-                    msg['workerid'] = query("""select workerid from workername
-                                               where workername=%s
-                                            """, (msg['workername']))[0][0]
+            if 'appid' not in msg:
+                msg['appid'] = query("""select appid from appnames
+                    where appname=%s""", (msg['appname']))[0][0]
 
-                insert_message(appid[0][0], msg['workerid'],
-                    msg.get('pool', 'default'),
-                    msg['code'],
-                    msg.get('data', None))
-                mark_head(appid[0][0], msg['workerid'])
+            if 'workerid' not in msg:
+                msg['workerid'] = query("""select workerid
+                    from workernames where appid=%s and workername=%s""",
+                    (msg['appid'], msg['workername']))[0][0]
+
+            insert_message(msg['appid'], msg['workerid'],
+                msg.get('pool', 'default'),
+                msg['code'],
+                msg.get('data', None))
+            mark_head(msg['appid'], msg['workerid'])
 
     if 'alarm' in req:
         if int(req['alarm']) < 1:

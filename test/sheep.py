@@ -77,7 +77,7 @@ def loop(input, state):
     if state['seq'] < 5:
         return ('retry', 'waiting in the loop', state, 1)
 
-    message = dict(workername='sheepdog', code='inform')
+    message = dict(appname='testapp', workername='sheepdog', code='inform')
     return ('message', 'informing sheepdog', state, [message])
 
 def send_file(input, state):
@@ -86,11 +86,13 @@ def send_file(input, state):
     filename = '/tmp/locktest.' + str(input['worker'])
 
     if os.path.isfile(filename):
-        message = dict(workername='sheepdog',
+        message = dict(appid=100000,
+                       workername='sheepdog',
                        code='file',
                        data=json.loads(open(filename).read()))
     else:
-        message = dict(workername='sheepdog',
+        message = dict(appname='testapp',
+                       workerid=1,
                        code='file',
                        data=dict(guid=input['guid'], total=0,
                                   workers=[], extraTotal=0, extraWorkers=[]))
