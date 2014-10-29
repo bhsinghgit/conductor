@@ -50,7 +50,10 @@ def run(timeout):
                 buffer = os.read(fd, 10*1024*1024)
 
                 if len(buffer) > 0:
-                    sock.sendall(buffer)
+                    try:
+                        sock.sendall(buffer)
+                    except socket.error:
+                        return
                 else:
                     time.sleep(1)
                     if file_seq < (ymdH(12)):

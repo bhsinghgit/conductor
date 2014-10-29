@@ -11,7 +11,7 @@ class Logger(object):
         if not session:
             session = int(time.time())
 
-        self.session  = "worker-%s.%010d.%06d" % (thread, session, os.getpid())
+        self.session  = "%s.%010d.%06d" % (thread, session, os.getpid())
         self.sequence = 0
 
     def append(self, tag, msg):
@@ -31,7 +31,7 @@ class Logger(object):
     def log(self, tag, msg=None):
         if msg is None:
             msg = tag
-            tag = '-'
+            tag = 'notag'
 
         index = msg.find('\n')
         if index > -1:
@@ -42,7 +42,7 @@ class Logger(object):
     def blob(self, msg):
         b64enc = base64.b64encode(msg)
         self.append(len(b64enc), b64enc)
-        return self.sequence
+        return '<<{0}>>'.format(self.sequence)
 
 def worker(state, event):
     state = json.loads(state)
@@ -138,7 +138,7 @@ def http_client(method, resource, args):
     logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
                     'request({4}) response({5})').format(
         method, resource, response.status, response.reason,
-        logger.blob(args), logger.blob(res)))
+        len(args), len(res)))
 
     try:
         body = json.loads(res)
@@ -164,7 +164,7 @@ while True:
     if 'data' in msg:
         event['data'] = base64.b64decode(msg['data'])
 
-    worker_logger = Logger(msg['workerid'], msg['session'])
+    worker_logger = Logger('worker-' + str(msg['workerid']), msg['session'])
     worker_module.log  = worker_logger.log
     worker_module.blob = worker_logger.blob
     result = worker_module.worker(base64.b64decode(msg['continuation']), event)

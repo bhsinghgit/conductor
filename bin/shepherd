@@ -82,5 +82,5 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
     module.blob = blob
 
     module.run(time.time() + 300)
-
+    time.sleep(1)
     os.system(' '.join(sys.argv) + '&')

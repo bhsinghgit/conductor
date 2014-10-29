@@ -1,6 +1,7 @@
 import os
 import time
 import socket
+import select
 import signal
 import fcntl
 import re
@@ -40,6 +41,11 @@ def run(timeout):
     signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
     while time.time() < timeout:
+        r, w, e = select.select([listener], [], [], timeout - time.time())
+        if 0 == len(r):
+            log('collector listener timedout') 
+            return
+
         sock, addr = listener.accept()
 
         if os.fork() != 0:
@@ -66,12 +72,23 @@ def run(timeout):
         filepath = os.path.join(dirname, filename)
         log('connection received for filename({0})'.format(filename))
 
-        fd = os.open(filepath, os.O_CREAT|os.O_WRONLY|os.O_APPEND, 0644)
-        fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-        os.fsync(fd)
+        fd = os.open(filepath, os.O_CREAT|os.O_RDWR|os.O_APPEND, 0644)
 
-        filesize = os.stat(filepath).st_size
-        log('filename({0}) size({1})'.format(filename, filesize))
+        filesize = os.lseek(fd, 0, os.SEEK_END)
+        origsize = filesize
+        while filesize > 0:
+             filesize = max(0, filesize - 1024*1024)
+             os.lseek(fd, filesize, os.SEEK_SET)
+             index = os.read(fd, 1024*1024).find('\n')
+             if index >= 0:
+                 filesize += index + 1
+                 break
+        os.ftruncate(fd, filesize)
+        os.fsync(fd)
+        fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+        log('filename({0}) original_size({1}) after_truncation({1})'.format(
+            filename, origsize, filesize))
 
         sock.sendall('%012d' % (filesize))
 
