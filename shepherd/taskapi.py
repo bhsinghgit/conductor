@@ -5,11 +5,11 @@ import functools
 import hashlib
 import uuid
 import time
-import MySQLdb
+import pymysql
 
 app     = flask.Flask(__name__)
 conf    = json.load(open('shepherd.json'))
-db_conn = MySQLdb.connect(conf['mysql_host'],
+db_conn = pymysql.connect(conf['mysql_host'],
                           conf['mysql_user'],
                           conf['mysql_password'],
                           conf['mysql_db'])
@@ -202,6 +202,11 @@ def add_msg(appid, workerid):
                  """, (workerid))
     if 1 != len(rows):
         throw(404, 'INVALID_WORKER_STATE')
+
+    query("""delete from messages
+             where appid=%s and workerid=%s and code='alarm'
+          """,
+          (appid, workerid))
 
     query("""insert into messages
              set workerid=%s, appid=%s,

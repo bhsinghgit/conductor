@@ -28,7 +28,7 @@ def append(tag, msg):
 def blob(msg):
     b64enc = base64.b64encode(msg)
     append(len(b64enc), b64enc)
-    return '<<{0}>>'.format(sequence)
+    return 'blob-{0}'.format(sequence)
 
 def log(tag, msg=None):
     if msg is None:

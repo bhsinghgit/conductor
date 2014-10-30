@@ -42,25 +42,24 @@ class Logger(object):
     def blob(self, msg):
         b64enc = base64.b64encode(msg)
         self.append(len(b64enc), b64enc)
-        return '<<{0}>>'.format(self.sequence)
+        return 'blob-{0}'.format(self.sequence)
 
 def worker(state, event):
+    log(event['code'])
     state = json.loads(state)
 
     if 'data' in event:
         event['data'] = json.loads(event['data'])
 
+    workflow = state['workflow']
+    input    = state['input']
+
     if 'init' == event['code']:
-        workflow     = state['workflow']
-        input        = state['input']
         control_info = dict(state='init', seq=0)
         continuation = None
     else:
-        workflow     = state['workflow']
-        input        = state['input']
         control_info = state['control_info']
         continuation = state['continuation']
-
         control_info['seq'] += 1
 
     current_state = control_info['state']
@@ -70,14 +69,14 @@ def worker(state, event):
         module.log  = log
         module.blob = blob
 
-        if event['code'] in ['alarm', 'init', 'locked', 'unlocked']:
-            method = getattr(module, current_state)
+        if event['code'] in ['alarm', 'init', 'locked']:
+            method_name = control_info['state']
         else:
-            method = getattr(module, 'handler')
-            current_state = 'handler'
+            method_name = 'handler'
 
         result = (None,)
-        if 'handler' == current_state:
+        method = getattr(module, method_name)
+        if 'handler' == method_name:
             result = method(input, continuation, event)
         else:
             result = method(input, continuation)
@@ -160,7 +159,8 @@ try:
 except:
     worker_module = sys.modules['__main__']
 
-while True:
+timeout = time.time() + 300
+while time.time() < timeout:
     status, reason, msg = http_client('POST', 'lockmessage', dict())
     if (200 != status) or ('NOT_FOUND' == msg):
         break
