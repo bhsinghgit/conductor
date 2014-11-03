@@ -89,13 +89,13 @@ def worker(state, event):
         return dict(exception=str(e))
 
     if 2 == len(result):
-        log('state transition. finished. current({0}) return({1})'.format(
+        log('state transition. finished. method({0}) return({1})'.format(
                 current_state, result[0]))
         return dict(status=json.dumps(result[1]))
 
     if 'retry' != result[0]:
-        control_info['state'] = module.workflow.get((control_info['state'],
-                                                     result[0]), 'handler')
+        control_info['state'] = module.workflow.get((method_name, result[0]),
+                                                    'handler')
 
     next_state  = control_info['state']
     commit_dict = dict(status=json.dumps(result[1]),
@@ -123,8 +123,8 @@ def worker(state, event):
     if 'retry' == result[0]:
         commit_dict['alarm'] = result[3]
 
-    log('state transition. current({0}) return({1}) next({2})'.format(
-            current_state, result[0], next_state))
+    log('state transition. method({0}) return({1}) next({2})'.format(
+            method_name, result[0], next_state))
     return commit_dict
 
 def http_client(method, resource, args):

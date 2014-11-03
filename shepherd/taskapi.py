@@ -203,11 +203,6 @@ def add_msg(appid, workerid):
     if 1 != len(rows):
         throw(404, 'INVALID_WORKER_STATE')
 
-    query("""delete from messages
-             where appid=%s and workerid=%s and code='alarm'
-          """,
-          (appid, workerid))
-
     query("""insert into messages
              set workerid=%s, appid=%s,
                  senderworkerid=%s, senderappid=%s,
@@ -251,11 +246,6 @@ def commit():
               (workflow_status, workflow_state, req['workerid'], req['appid']))
         return "OK"
 
-    query("""delete from messages
-             where appid=%s and workerid=%s and code='alarm'
-          """,
-          (req['appid'], req['workerid']))
-
     def insert_message(appid, workerid, pool, code, data=None):
         query("""insert into messages
                  set workerid=%s, appid=%s,
@@ -297,6 +287,7 @@ def commit():
                   """,
                   (lockname, req['appid'], req['workerid']))
 
+        to_be_unlocked = set()
         for lockname in set(req['unlock']):
             other_appid, other_workerid = get_lock_holder(lockname)
 
@@ -312,9 +303,11 @@ def commit():
                         counter += 1
 
                 if len(locks) == counter:
-                    insert_message(other_appid, other_workerid,
-                                   'default', 'locked')
-                    mark_head(other_appid, other_workerid)
+                    to_be_unlocked.add((other_appid, other_workerid))
+
+        for app_worker in to_be_unlocked:
+            insert_message(app_worker[0], app_worker[1], 'default', 'locked')
+            mark_head(app_worker[0], app_worker[1])
 
     if 'message' in req:
         for msg in req['message']:
@@ -336,6 +329,10 @@ def commit():
     if 'alarm' in req:
         if int(req['alarm']) < 1:
             req['alarm'] = 0
+
+        query("""delete from messages
+                 where appid=%s and workerid=%s and code='alarm'
+              """, (req['appid'], req['workerid']))
 
         query("""insert into messages
                  set workerid=%s, appid=%s, senderworkerid=%s, senderappid=%s,
