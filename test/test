@@ -38,10 +38,10 @@ def http_get(resource):
     return http_client('GET', resource)
 
 def add_worker(input, workername):
-    return http_put('workers', dict(input=base64.b64encode(input),
+    return http_put('/workers', dict(input=base64.b64encode(input),
                                     workername=workername))
 def get_status(workerid):
-    return http_get('workers/{0}'.format(workerid))
+    return http_get('/workers/{0}'.format(workerid))
 
 workercount = int(sys.argv[1])
 
@@ -68,7 +68,7 @@ while True:
     print(result)
 
     if 'SLEEPING_FOR_SIGNAL_5' == result:
-        http_post('messages/testapp/sheepdog', dict(code='report'))
+        http_post('/messages/testapp/sheepdog', dict(code='report'))
 
     if result in ['PASS', 'FAIL']:
         break

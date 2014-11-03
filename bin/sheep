@@ -161,7 +161,7 @@ except:
 
 timeout = time.time() + 300
 while time.time() < timeout:
-    status, reason, msg = http_client('POST', 'lockmessage', dict())
+    status, reason, msg = http_client('POST', '/lockmessage', dict())
     if (200 != status) or ('NOT_FOUND' == msg):
         break
 
@@ -190,4 +190,4 @@ while time.time() < timeout:
     result['msgid']    = msg['msgid']
     result['workerid'] = msg['workerid']
 
-    http_client('POST', 'commit', result)
+    http_client('POST', '/commit', result)
