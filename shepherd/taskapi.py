@@ -22,18 +22,27 @@ def throw(response_code, error_msg):
 def transaction(f):
     @functools.wraps(f)
     def f1(*args, **kwargs):
-        try:
-            response = f(*args, **kwargs)
-            db_conn.commit()
-            status = 200
-        except Exception as e:
-            db_conn.rollback()
-            if type(e) is tuple:
-                status   = e[0]
-                response = e[1]
-            else:
-                status   = 500
-                response = str(e)
+        msec = time.time() * 1000
+        for i in range(5):
+            try:
+                response = f(*args, **kwargs)
+                db_conn.commit()
+                status = 200
+                break
+            except pymysql.err.InternalError as e:
+                db_conn.rollback()
+                print('attempt({0}) msec({1}) exception{2}'.format(
+                    i, int(time.time()*1000-msec), e))
+            except Exception as e:
+                db_conn.rollback()
+                if type(e) is tuple:
+                    status   = e[0]
+                    response = e[1]
+                else:
+                    status   = 500
+                    response = str(e)
+                print(response)
+                break
 
         return flask.Response(json.dumps(response, indent=4, sort_keys=True),
                               status,
@@ -341,10 +350,10 @@ def commit():
               (req['workerid'], req['appid'], req['workerid'], req['appid'],
                pool, req['alarm']))
 
+    mark_head(req['appid'], req['workerid'])
+
     query("update workers set status=%s, continuation=%s where workerid=%s",
           (req['status'], req['continuation'], req['workerid']))
-
-    mark_head(req['appid'], req['workerid'])
 
     return "OK"
 
@@ -370,8 +379,8 @@ def lockmessage():
 
     pools['default'] = hosts.keys()
 
-    for pool, ip_list in pools.iteritems():
-        for ip in set(ip_list):
+    for pool in sorted(pools.keys()):
+        for ip in sorted(set(pools[pool])):
             rows = query(sql1, (req['appid'], pool))
             if len(rows) > 0:
                 msgid, workerid, code, data = rows[0]
