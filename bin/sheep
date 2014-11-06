@@ -134,22 +134,27 @@ def http_client(method, resource, args):
     }
 
     args = json.dumps(args)
-    conn.request(method, resource, args, headers)
 
-    response = conn.getresponse()
-    res      = response.read()
+    while True:
+        conn.request(method, resource, args, headers)
 
-    logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
-                    'request({4}) response({5})').format(
-        method, resource, response.status, response.reason,
-        len(args), len(res)))
+        response = conn.getresponse()
+        res      = response.read()
 
-    try:
-        body = json.loads(res)
-    except ValueError:
-        body = None
+        logger.log('API', ('method({0}) resource({1}) status({2}) ' +
+                           'reason({3}) request({4}) response({5})').format(
+                           method, resource, response.status,
+                           response.reason, len(args), len(res)))
+        if 500 == response.status:
+            time.sleep(1)
+            continue
 
-    return response.status, response.reason, body
+        try:
+            body = json.loads(res)
+        except ValueError:
+            body = None
+
+        return response.status, response.reason, body
 
 conn   = httplib.HTTPConnection(os.environ['APIHOST']+':'+os.environ['APIPORT'])
 logger = Logger('worker')

@@ -13,7 +13,6 @@ db_conn = pymysql.connect(conf['mysql_host'],
                           conf['mysql_user'],
                           conf['mysql_password'],
                           conf['mysql_db'])
-
 db_cursor = db_conn.cursor()
 
 def throw(response_code, error_msg):
@@ -23,7 +22,9 @@ def transaction(f):
     @functools.wraps(f)
     def f1(*args, **kwargs):
         msec = time.time() * 1000
+        attempts = 0
         for i in range(5):
+            attempts += 1
             try:
                 response = f(*args, **kwargs)
                 db_conn.commit()
@@ -31,18 +32,19 @@ def transaction(f):
                 break
             except pymysql.err.InternalError as e:
                 db_conn.rollback()
-                print('attempt({0}) msec({1}) exception{2}'.format(
-                    i, int(time.time()*1000-msec), e))
             except Exception as e:
                 db_conn.rollback()
                 if type(e) is tuple:
                     status   = e[0]
                     response = e[1]
                 else:
-                    status   = 500
+                    status   = 400
                     response = str(e)
-                print(response)
                 break
+
+        if 200 != status:
+            print('attempts({0}) msec({1}) exception{2}'.format(
+                    attempts, int(time.time()*1000-msec), response))
 
         return flask.Response(json.dumps(response, indent=4, sort_keys=True),
                               status,
