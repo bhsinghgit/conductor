@@ -135,26 +135,21 @@ def http_client(method, resource, args):
 
     args = json.dumps(args)
 
-    while True:
-        conn.request(method, resource, args, headers)
+    conn.request(method, resource, args, headers)
 
-        response = conn.getresponse()
-        res      = response.read()
+    response = conn.getresponse()
+    res      = response.read()
 
-        logger.log('API', ('method({0}) resource({1}) status({2}) ' +
-                           'reason({3}) request({4}) response({5})').format(
-                           method, resource, response.status,
-                           response.reason, len(args), len(res)))
-        if 500 == response.status:
-            time.sleep(1)
-            continue
+    logger.log('API', ('method({0}) resource({1}) status({2}) ' +
+                       'reason({3}) request({4}) response({5})').format(
+                       method, resource, response.status,
+                       response.reason, len(args), len(res)))
+    try:
+        body = json.loads(res)
+    except ValueError:
+        body = None
 
-        try:
-            body = json.loads(res)
-        except ValueError:
-            body = None
-
-        return response.status, response.reason, body
+    return response.status, response.reason, body
 
 conn   = httplib.HTTPConnection(os.environ['APIHOST']+':'+os.environ['APIPORT'])
 logger = Logger('worker')
@@ -195,4 +190,9 @@ while time.time() < timeout:
     result['msgid']    = msg['msgid']
     result['workerid'] = msg['workerid']
 
-    http_client('POST', '/commit', result)
+    while True:
+        status, reason, msg = http_client('POST', '/commit', result)
+        if 500 != status:
+            break
+
+        time.sleep(1)

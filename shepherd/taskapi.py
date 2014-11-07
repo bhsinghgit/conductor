@@ -7,13 +7,10 @@ import uuid
 import time
 import pymysql
 
-app     = flask.Flask(__name__)
-conf    = json.load(open('shepherd.json'))
-db_conn = pymysql.connect(conf['mysql_host'],
-                          conf['mysql_user'],
-                          conf['mysql_password'],
-                          conf['mysql_db'])
-db_cursor = db_conn.cursor()
+app = flask.Flask(__name__)
+
+db_conn = pymysql.connect('127.0.0.1', 'root', '', 'shepherd')
+db_cursor = None
 
 def throw(response_code, error_msg):
     raise Exception((response_code, error_msg))
@@ -21,17 +18,25 @@ def throw(response_code, error_msg):
 def transaction(f):
     @functools.wraps(f)
     def f1(*args, **kwargs):
+        global db_cursor
         msec = time.time() * 1000
+
+        if db_cursor:
+            db_cursor.close()
+        db_cursor = db_conn.cursor()
+
         attempts = 0
-        for i in range(5):
+        status   = None
+        while True:
             attempts += 1
             try:
                 response = f(*args, **kwargs)
                 db_conn.commit()
                 status = 200
-                break
             except pymysql.err.InternalError as e:
+                import pprint;pprint.pprint(e);
                 db_conn.rollback()
+                time.sleep(1)
             except Exception as e:
                 db_conn.rollback()
                 if type(e) is tuple:
@@ -40,6 +45,8 @@ def transaction(f):
                 else:
                     status   = 400
                     response = str(e)
+
+            if status:
                 break
 
         if 200 != status:
