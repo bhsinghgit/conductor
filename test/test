@@ -7,8 +7,7 @@ import time
 import httplib
 import optparse
 
-conf = json.loads(open('shepherd.json').read())
-conn = httplib.HTTPConnection(conf['api_host'], conf['api_port'])
+conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
 
 def http_client(method, resource, args=None):
     header = {
@@ -43,7 +42,7 @@ def add_worker(input, workername):
 def get_status(workerid):
     return http_get('/workers/{0}'.format(workerid))
 
-workercount = int(sys.argv[1])
+workercount = int(sys.argv[3])
 
 guid = str(uuid.uuid4())
 add_worker(json.dumps(dict(workflow='sheepdog',

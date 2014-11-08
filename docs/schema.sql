@@ -77,17 +77,7 @@ create table messages(
 create index msg1 on messages(timestamp, state, lock_ip, appid, pool);
 create index msg2 on messages(appid, workerid, msgid);
 
-insert into apps set
-    authkey='testkey',
-    state='active',
-    path='/tmp/abcd/bin/python';
-
-insert into appnames set
-    appname='testapp',
-    appid=100000;
-
-insert into hosts set
-    appid=100000,
-    ip='127.0.0.1',
-    count_async=100,
-    count_sync=0;
+create table config(
+    name varchar(256) primary key,
+    value varchar(256)
+) engine=innodb;

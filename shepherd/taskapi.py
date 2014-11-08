@@ -99,6 +99,11 @@ def validate_request():
 
     return req
 
+@app.route('/config', methods=['GET'])
+@transaction
+def get_config():
+    return dict([(r[0], r[1]) for r in query("select * from config")])
+
 @app.route('/applications', methods=['GET'])
 @transaction
 def get_apps():

@@ -4,17 +4,12 @@ import time
 import socket
 import select
 import fcntl
-import urllib
 
 host2sock = dict()
 context   = dict()
 omsg      = dict()
 isock     = set()
 osock     = set()
-
-def http_get(resource):
-    return json.loads(urllib.urlopen( 'http://{0}:{1}/{2}'.format(
-        conf['api_host'], conf['api_port'],resource)).read())
 
 def disconnect(sock):
     addr = context[sock]['remote']
@@ -35,7 +30,7 @@ def disconnect(sock):
 def run(timeout):
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(('', conf['notifier_port']))
+    listener.bind(('', int(conf['notifier_port'])))
     listener.listen(5)
     listener.setblocking(0)
     log('listening on {0}'.format(listener.getsockname()))
@@ -112,8 +107,8 @@ def run(timeout):
             continue
 
         try:
-            apps = http_get('applications')
-            msgs = http_get('messages')
+            apps = api_get('applications')
+            msgs = api_get('messages')
         except Exception as e:
             log('Could not access api : {0}'.format(str(e)))
             continue
@@ -158,8 +153,6 @@ def run(timeout):
                     continue
 
                 apps[uid]['async_count'] = allocation[ip][uid]
-                apps[uid]['api_host']    = conf['api_host']
-                apps[uid]['api_port']    = conf['api_port']
                 apps[uid].pop('hosts')
                 apps[uid].pop('pools', None)
                 request_msg[uid] = apps[uid]

@@ -33,7 +33,7 @@ def run(timeout):
     allowed  = timeout - time.time()
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(('', conf['collector_port']))
+    listener.bind(('', int(conf['collector_port'])))
     listener.listen(5)
     fcntl.fcntl(listener, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
     log('listening on {0}'.format(listener.getsockname()))

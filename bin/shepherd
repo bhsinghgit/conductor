@@ -5,6 +5,11 @@ import json
 import time
 import fcntl
 import base64
+import urllib
+
+def api_get(resource):
+    return json.loads(urllib.urlopen('http://{0}:{1}/{2}'.format(
+        sys.argv[2], sys.argv[3], resource)).read())
 
 thread   = sys.argv[1]
 session  = "%s.%010d.%06d" % (thread, int(time.time()), os.getpid())
@@ -77,9 +82,10 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
 
     module = getattr(__import__('shepherd.' + thread), thread)
 
-    module.conf = json.load(open('shepherd.json'))
-    module.log  = log
-    module.blob = blob
+    module.conf    = api_get('config')
+    module.log     = log
+    module.blob    = blob
+    module.api_get = api_get
 
     module.run(time.time() + 300)
     time.sleep(1)

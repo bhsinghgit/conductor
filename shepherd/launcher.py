@@ -11,10 +11,11 @@ def run(timeout):
     while time.time() < timeout:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.bind(('', conf['launcher_port']))
-            sock.connect((conf['notifier_host'], conf['notifier_port']))
+            sock.bind(('', int(conf['notifier_port'])))
+            sock.connect((conf['notifier_host'], int(conf['notifier_port'])))
             break
-        except:
+        except Exception as e:
+            log('could not connect to notifier. exception{0}'.format(str(e)))
             time.sleep(5)
 
     while time.time() < timeout:
@@ -47,8 +48,8 @@ def run(timeout):
         for uid, app in msg.iteritems():
             os.environ['AUTHKEY'] = app['authkey']
             os.environ['APPID']   = uid
-            os.environ['APIHOST'] = app['api_host']
-            os.environ['APIPORT'] = str(app['api_port'])
+            os.environ['APIHOST'] = sys.argv[2]
+            os.environ['APIPORT'] = sys.argv[3]
 
             count = 0
             for i in range(app['async_count'] - proc_count.get(int(uid), 0)):
