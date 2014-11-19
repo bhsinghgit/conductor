@@ -27,7 +27,7 @@ def disconnect(sock):
     sock.close()
     log('launcher disconnected from{0}'.format(addr))
 
-def run(timeout):
+def run():
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(('', int(conf['notifier_port'])))
@@ -107,59 +107,31 @@ def run(timeout):
             continue
 
         try:
-            apps = api_get('applications')
-            msgs = api_get('messages')
+            pending = api('pending')
         except Exception as e:
             log('Could not access api : {0}'.format(str(e)))
             continue
-
-        allocation = dict()
-        for uid, pool_count in msgs.iteritems():
-            for pool, count in pool_count.iteritems():
-                if uid not in apps:
-                    continue
-
-                if 'default' == pool:
-                    ip_list = apps[uid]['hosts'].keys()
-                else:
-                    ip_list = apps[uid]['pools'].get(pool, [])
-
-                ip_list = set(ip_list).intersection(host2sock.keys())
-
-                while count > 0:
-                    start_count = count
-                    for ip in ip_list:
-                      allocation.setdefault(ip, dict()).setdefault(uid, 0)
-    
-                      if allocation[ip][uid] < apps[uid]['hosts'][ip]['async']:
-                          allocation[ip][uid] += 1
-                          count -= 1
-                          if 0 == count:
-                              break
-                    if count == start_count:
-                        break
 
         for sock in context:
             if (sock in isock) or (sock in osock):
                 continue 
 
             ip = context[sock]['remote'][0]
-            if ip not in allocation:
+            if ip not in pending['allocation']:
                 continue
 
-            request_msg = dict()
-            for uid in allocation[ip]:
-                if allocation[ip][uid] < 1:
+            msg = dict()
+            for uid in pending['allocation'][ip]:
+                if pending['allocation'][ip][uid] < 1:
                     continue
 
-                apps[uid]['async_count'] = allocation[ip][uid]
-                apps[uid].pop('hosts')
-                apps[uid].pop('pools', None)
-                request_msg[uid] = apps[uid]
+                msg[uid] = dict(
+                    async_count=pending['allocation'][ip][uid],
+                    authkey=pending['applications'][uid]['authkey'],
+                    path=pending['applications'][uid]['path'])
 
-            log('sent to {0} blob({1})'.format(
-                ip, blob(json.dumps(request_msg))))
-            context[sock]['bytes'] = json.dumps(request_msg)
+            log('sent to {0} blob({1})'.format(ip, blob(json.dumps(msg))))
+            context[sock]['bytes'] = json.dumps(msg)
             osock.add(sock)
 
         timestamp = time.time()

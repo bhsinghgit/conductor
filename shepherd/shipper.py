@@ -7,7 +7,7 @@ def ymdH(subtract_hour=0):
     now = int(time.time()) - (subtract_hour*3600)
     return int(time.strftime('%y%m%d%H',time.gmtime((now//(6*3600))*6*3600)))
 
-def run(timeout):
+def run():
     for path in os.listdir('.'):
         fields = path.split('.')
         if (len(fields) != 2) or ('log' != fields[0]):

@@ -104,28 +104,50 @@ def validate_request():
 def get_config():
     return dict([(r[0], r[1]) for r in query("select * from config")])
 
-@app.route('/applications', methods=['GET'])
+@app.route('/pending', methods=['GET'])
 @transaction
-def get_apps():
-    sql = "select appid, authkey, path from apps where state='active'"
+def get_allocation():
+    apps = dict([(r[0], dict(authkey=r[1], path=r[2])) for r in  query(
+                 "select appid, authkey, path from apps where state='active'")])
 
-    ret = dict()
-    for appid, authkey, path in query(sql):
-        hosts = query("""select ip, count_async, count_sync
-                         from hosts where appid=%s
-                      """, (appid))
-        pools = query("select pool, ip from pools where appid=%s", (appid))
+    counts = dict()
+    for appid in apps.keys():
+        counts[appid] = dict([(h[0], dict(async=h[1])) for h in query("""
+            select ip, count_async from hosts where appid=%s""", (appid))])
 
-        pool_dict = dict()
-        for pool, ip in pools:
-            pool_dict.setdefault(pool, list()).append(ip)
+    msgs = query("""select appid, pool, count(*) as count
+                    from messages
+                    where timestamp < now() and state='head' and lock_ip is null
+                    group by appid, pool""")
 
-        ret[appid] = dict(authkey=authkey,
-                          path=path,
-                          hosts=dict([(h[0], dict(async=h[1], sync=h[2]))
-                                     for h in hosts]),
-                          pools=pool_dict)
-    return ret
+    allocation = dict()
+    for appid, pool, count in msgs:
+        if appid not in apps:
+            continue
+
+        if 'default' == pool:
+            ip_list = [r[0] for r in query("""select distinct ip
+                from hosts where appid=%s""", (appid))]
+        else:
+            ip_list = [r[0] for r in query("""select distinct ip
+                from pools where appid=%s and pool=%s""", (appid, pool))]
+
+        while count > 0:
+            start_count = count
+            for ip in ip_list:
+                allocation.setdefault(ip, dict()).setdefault(appid, 0)
+
+                if allocation[ip][appid] < counts[appid][ip]:
+                    allocation[ip][appid] += 1
+                    count -= 1
+                    if 0 == count:
+                        break
+            if count == start_count:
+                break
+
+    return dict(applications=apps,
+                allocation=allocation,
+                client_ip=flask.request.remote_addr)
 
 def insert_worker(appid, continuation, pool, priority):
     query("insert into workers set appid=%s, state='active', continuation=%s",
@@ -173,18 +195,6 @@ def get_worker_status(workerid):
         throw(404, 'WORKER_NOT_FOUND')
 
     return dict(status=rows[0][0])
-
-@app.route('/messages', methods=['GET'])
-@transaction
-def get_msgs():
-    sql = """select appid, pool, count(*) as count
-             from messages
-             where timestamp < now() and state='head' and lock_ip is null
-             group by appid, pool"""
-    ret = dict()
-    for appid, pool, count in query(sql):
-        ret.setdefault(appid, dict())[pool] = count
-    return ret
 
 def mark_head(appid, workerid):
     msgid = query("""select msgid from messages

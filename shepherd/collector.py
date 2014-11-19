@@ -29,7 +29,7 @@ def append(session, line):
 
     os.write(filedict[filename], '\n' + line)
 
-def run(timeout):
+def run():
     allowed  = timeout - time.time()
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

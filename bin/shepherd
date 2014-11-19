@@ -7,7 +7,7 @@ import fcntl
 import base64
 import urllib
 
-def api_get(resource):
+def api(resource):
     return json.loads(urllib.urlopen('http://{0}:{1}/{2}'.format(
         sys.argv[2], sys.argv[3], resource)).read())
 
@@ -82,11 +82,12 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
 
     module = getattr(__import__('shepherd.' + thread), thread)
 
-    module.conf    = api_get('config')
+    module.conf    = api('config')
     module.log     = log
     module.blob    = blob
-    module.api_get = api_get
+    module.api     = api
+    module.timeout = time.time() + 300
 
-    module.run(time.time() + 300)
+    module.run()
     time.sleep(1)
     os.system(' '.join(sys.argv) + '&')
