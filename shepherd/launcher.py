@@ -52,13 +52,16 @@ def poller():
             log('Could not access api : {0}'.format(str(e)))
 
         myip = pending['client_ip']
-        app_dict = dict()
-        for uid, count in pending['allocation'][myip].iteritems():
-            app_dict[uid] = dict(async_count=count,
-                               authkey=pending['applications'][uid]['authkey'],
-                               path=pending['applications'][uid]['path'])
+        if myip in pending['allocation']:
+            app_dict = dict()
+            for uid, count in pending['allocation'][myip].iteritems():
+                app_dict[uid] = dict(
+                    async_count=count,
+                    authkey=pending['applications'][uid]['authkey'],
+                    path=pending['applications'][uid]['path'])
 
-        launch(app_dict)
+            launch(app_dict)
+
         time.sleep(30)
 
 def agent():

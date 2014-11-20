@@ -112,7 +112,7 @@ def get_allocation():
 
     counts = dict()
     for appid in apps.keys():
-        counts[appid] = dict([(h[0], dict(async=h[1])) for h in query("""
+        counts[appid] = dict([(h[0], h[1]) for h in query("""
             select ip, count_async from hosts where appid=%s""", (appid))])
 
     msgs = query("""select appid, pool, count(*) as count
@@ -434,4 +434,5 @@ def lockmessage():
 
 if __name__ == '__main__':
     app.debug = True
-    app.run(host='0.0.0.0', port=5000)
+    print('Starting.....')
+    app.run(host='0.0.0.0', port=6000)
