@@ -5,6 +5,7 @@ import time
 import json
 import base64
 import httplib
+import importlib
 
 class Logger(object):
     def __init__(self, thread, session=None):
@@ -65,7 +66,8 @@ def worker(state, event):
     current_state = control_info['state']
 
     try:
-        module      = __import__(workflow)
+        result      = (None,)
+        module      = importlib.import_module(workflow)
         module.log  = log
         module.blob = blob
 
@@ -74,7 +76,6 @@ def worker(state, event):
         else:
             method_name = 'handler'
 
-        result = (None,)
         method = getattr(module, method_name)
         if 'handler' == method_name:
             result = method(input, continuation, event)
@@ -86,7 +87,7 @@ def worker(state, event):
     except Exception as e:
         log('state transition. current({0}) return({1}) exception({2})'.format(
                 current_state, result[0], str(e)))
-        return dict(exception=str(e))
+        return dict(status=json.dumps(str(e)))
 
     if 2 == len(result):
         log('state transition. finished. method({0}) return({1})'.format(
@@ -109,6 +110,9 @@ def worker(state, event):
 
     if 'unlock' == result[0]:
         commit_dict['unlock'] = result[3]
+
+    if 'alarm' == result[0]:
+        commit_dict['alarm'] = result[3]
 
     if 'message' == result[0]:
         for m in result[3]:
