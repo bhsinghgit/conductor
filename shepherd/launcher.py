@@ -23,6 +23,10 @@ def launch(app_dict, sock=None):
         os.environ['APIHOST'] = sys.argv[2]
         os.environ['APIPORT'] = sys.argv[3]
 
+        if not os.path.isdir(uid):
+            os.mkdir(uid, 0700)
+            os.chown(uid, int(uid), int(uid))
+
         count = 0
         for i in range(app['async_count'] - proc_count.get(int(uid), 0)):
             if 0 == os.fork():
@@ -38,6 +42,9 @@ def launch(app_dict, sock=None):
                 command = os.path.join(app['path'])
                 dirname = os.path.dirname(sys.argv[0])
                 worker  = os.path.join(dirname, 'sheep')
+
+                os.chdir(uid)
+                signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
                 os.execv(command, [command, worker])
             else:

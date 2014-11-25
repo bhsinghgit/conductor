@@ -94,11 +94,14 @@ def worker(state, event):
                 current_state, result[0]))
         return dict(status=json.dumps(result[1]))
 
+    next_state = None
     if 'retry' != result[0]:
-        control_info['state'] = module.workflow.get((method_name, result[0]),
-                                                    'handler')
-
-    next_state  = control_info['state']
+        next_state = module.workflow.get((method_name, result[0]))
+        if next_state:
+            control_info['state'] = next_state
+    else:
+            next_state = control_info['state']
+            
     commit_dict = dict(status=json.dumps(result[1]),
                        state=json.dumps(dict(workflow=workflow,
                                              input=input,
@@ -121,7 +124,7 @@ def worker(state, event):
 
         commit_dict['message'] = result[3]
 
-    if ('handler' != next_state) and ('lock' != result[0]):
+    if (next_state is not None) and ('lock' != result[0]):
         commit_dict['alarm'] = 0
 
     if 'retry' == result[0]:
