@@ -1,6 +1,5 @@
 import flask
 import json
-import base64
 import functools
 import hashlib
 import uuid
@@ -150,8 +149,8 @@ def get_allocation():
                 client_ip=flask.request.remote_addr)
 
 def insert_worker(appid, continuation, pool, priority):
-    query("insert into workers set appid=%s, state='active', continuation=%s",
-          (appid, continuation))
+    query("""insert into workers set appid=%s, state='active',
+             continuation=%s, status='null'""", (appid, continuation))
     workerid = query("select last_insert_id()")[0][0]
     query("""insert into messages
              set workerid=%s, appid=%s, senderappid=%s, senderworkerid=%s,
@@ -169,7 +168,10 @@ def add_worker():
     pool     = req.get('pool', 'default')
     priority = req.get('priority', 128)
 
-    workerid = insert_worker(appid, req['input'], pool, priority)
+    if 'workflow' in req:
+        req['data'] = dict(workflow=req['workflow'], input=req['data'])
+
+    workerid = insert_worker(appid, json.dumps(req['data']), pool, priority)
 
     if 'PUT' == flask.request.method:
         query("insert into workernames set appid=%s, workername=%s,workerid=%s",
@@ -194,7 +196,7 @@ def get_worker_status(workerid):
     if 1 != len(rows):
         throw(404, 'WORKER_NOT_FOUND')
 
-    return dict(status=rows[0][0])
+    return dict(status=json.loads(rows[0][0]))
 
 def mark_head(appid, workerid):
     msgid = query("""select msgid from messages
@@ -213,6 +215,9 @@ def add_msg(appid, workerid):
     priority = req.get('priority', 128)
     data     = req.get('data', None)
     delay    = req.get('delay', 0)
+
+    if data:
+        data = json.dumps(data)
 
     if not appid.isdigit():
         rows = query("select appid from appnames where appname=%s", (appid))
@@ -275,11 +280,16 @@ def commit():
               (req['appid'], req['workerid']))
         query("""update workers set status=%s, continuation=null, state=%s
                  where workerid=%s and appid=%s
-              """,
-              (workflow_status, workflow_state, req['workerid'], req['appid']))
+              """, (json.dumps(workflow_status),
+                    workflow_state,
+                    req['workerid'],
+                    req['appid']))
         return "OK"
 
     def insert_message(appid, workerid, pool, code, data=None):
+        if data:
+            data = json.dumps(data)
+
         query("""insert into messages
                  set workerid=%s, appid=%s,
                      senderworkerid=%s, senderappid=%s,
@@ -377,7 +387,9 @@ def commit():
     mark_head(req['appid'], req['workerid'])
 
     query("update workers set status=%s, continuation=%s where workerid=%s",
-          (req['status'], req['continuation'], req['workerid']))
+          (json.dumps(req['status']),
+           json.dumps(req['continuation']),
+           req['workerid']))
 
     return "OK"
 
@@ -421,12 +433,12 @@ def lockmessage():
                 result = dict(msgid        = msgid,
                               workerid     = workerid,
                               session      = session,
-                              continuation = continuation,
+                              continuation = json.loads(continuation),
                               code         = code,
                               pool         = pool)
 
                 if data:
-                    result['data'] = data
+                    result['data'] = json.loads(data)
 
                 return result
 

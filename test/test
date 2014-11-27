@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import sys
 import json
-import base64
 import uuid
 import time
 import httplib
@@ -27,48 +26,31 @@ def http_client(method, resource, args=None):
         print(response.read())
         exit(1)
 
-def http_post(resource, args):
-    return http_client('POST', resource, args)
-
-def http_put(resource, args):
-    return http_client('PUT', resource, args)
-
-def http_get(resource):
-    return http_client('GET', resource)
-
-def add_worker(input, workername):
-    return http_put('/workers', dict(input=base64.b64encode(input),
-                                    workername=workername))
-def get_status(workerid):
-    return http_get('/workers/{0}'.format(workerid))
-
 workercount = int(sys.argv[3])
 
 guid = str(uuid.uuid4())
-add_worker(json.dumps(dict(workflow='sheepdog',
-                           input=dict(expected=workercount,
-                                      guid=guid))),
-           'sheepdog')
+http_client('PUT', '/workers',
+            dict(data=dict(expected=workercount, guid=guid),
+                 workflow='sheepdog',
+                 workername='sheepdog'))
 
 for i in range(workercount):
-    add_worker(json.dumps(dict(workflow='sheep',
-                               input=dict(worker=i,
-                                          count=workercount,
-                                          guid=guid))),
-               'sheep-' + str(i))
+    http_client('PUT', '/workers',
+                dict(data=dict(worker=i, count=workercount, guid=guid),
+                     workflow='sheep',
+                     workername='sheep-' + str(i)))
 
 while True:
-    result = get_status('sheepdog')
+    result = http_client('GET', '/workers/sheepdog')
     if (result['status'] is None) or ('NOT_FOUND' == result['status']):
         time.sleep(1)
         continue
 
-    result = json.loads(base64.b64decode(result['status']))
-    print(result)
+    print(result['status'])
 
-    if 'SLEEPING_FOR_SIGNAL_5' == result:
-        http_post('/messages/testapp/sheepdog', dict(code='report'))
+    if 'SLEEPING_FOR_SIGNAL_5' == result['status']:
+        http_client('POST', '/messages/testapp/sheepdog', dict(code='report'))
 
-    if result in ['PASS', 'FAIL']:
+    if result['status'] in ['PASS', 'FAIL']:
         break
     time.sleep(1)

@@ -47,10 +47,6 @@ class Logger(object):
 
 def worker(state, event):
     log(event['code'])
-    state = json.loads(state)
-
-    if 'data' in event:
-        event['data'] = json.loads(event['data'])
 
     workflow = state['workflow']
     input    = state['input']
@@ -87,12 +83,12 @@ def worker(state, event):
     except Exception as e:
         log('state transition. current({0}) return({1}) exception({2})'.format(
                 current_state, result[0], str(e)))
-        return dict(status=json.dumps(str(e)))
+        return dict(status=str(e))
 
     if 2 == len(result):
         log('state transition. finished. method({0}) return({1})'.format(
                 current_state, result[0]))
-        return dict(status=json.dumps(result[1]))
+        return dict(status=result[1])
 
     next_state = None
     if 'retry' != result[0]:
@@ -102,11 +98,11 @@ def worker(state, event):
     else:
             next_state = control_info['state']
             
-    commit_dict = dict(status=json.dumps(result[1]),
-                       state=json.dumps(dict(workflow=workflow,
-                                             input=input,
-                                             control_info=control_info,
-                                             continuation=result[2])))
+    commit_dict = dict(status=result[1],
+                       state=dict(workflow=workflow,
+                                  input=input,
+                                  control_info=control_info,
+                                  continuation=result[2]))
 
     if 'lock' == result[0]:
         commit_dict['lock']   = result[3]
@@ -118,10 +114,6 @@ def worker(state, event):
         commit_dict['alarm'] = result[3]
 
     if 'message' == result[0]:
-        for m in result[3]:
-            if 'data' in m:
-                m['data'] = json.dumps(m['data'])
-
         commit_dict['message'] = result[3]
 
     if (next_state is not None) and ('lock' != result[0]):
@@ -158,6 +150,7 @@ def http_client(method, resource, args):
 
     return response.status, response.reason, body
 
+appdir = os.getcwd()
 conn   = httplib.HTTPConnection(os.environ['APIHOST']+':'+os.environ['APIPORT'])
 logger = Logger('worker')
 
@@ -168,31 +161,29 @@ except:
 
 timeout = time.time() + 300
 while time.time() < timeout:
+    os.umask(0077)
+    os.chdir(appdir)
+
     status, reason, msg = http_client('POST', '/lockmessage', dict())
     if (200 != status) or ('NOT_FOUND' == msg):
         break
 
-    event = dict(code=msg['code'])
-    if 'data' in msg:
-        event['data'] = base64.b64decode(msg['data'])
-
     worker_logger = Logger('worker-' + str(msg['workerid']), msg['session'])
     worker_module.log  = worker_logger.log
     worker_module.blob = worker_logger.blob
-    result = worker_module.worker(base64.b64decode(msg['continuation']), event)
+
+    event = dict(code=msg['code'])
+    if 'data' in msg:
+        event['data'] = msg['data']
+
+    result = worker_module.worker(msg['continuation'], event)
 
     if result is None:
         result = dict(status='WORKER_CRASHED')
 
-    if 'status' in result:
-        result['status'] = base64.b64encode(result['status'])
-
     if 'state' in result:
-        result['continuation'] = base64.b64encode(result['state'])
-
-    for m in result.get('message', []):
-        if 'data' in m:
-            m['data'] = base64.b64encode(m['data'])
+        result['continuation'] = result['state']
+        del(result['state'])
 
     result['msgid']    = msg['msgid']
     result['workerid'] = msg['workerid']

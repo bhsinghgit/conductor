@@ -54,7 +54,7 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
     logseq = ymdH()
     oldseq = ymdH(6)
 
-    os.umask(0)
+    os.umask(0077)
 
     os.closerange(0, 5)
 
@@ -65,10 +65,10 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
                 os.O_CREAT|os.O_WRONLY|os.O_APPEND,
                 0644)
 
-    os.open('log.{0}'.format(logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND, 0644)
+    os.open('log.{0}'.format(logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND, 0600)
 
     try:
-        fcntl.flock(os.open(thread + '.lock', os.O_CREAT|os.O_RDONLY, 0444),
+        fcntl.flock(os.open(thread + '.lock', os.O_CREAT|os.O_RDONLY, 0600),
                     fcntl.LOCK_EX|fcntl.LOCK_NB)
     except:
         log('could not lock file({0})'.format(thread))

@@ -59,14 +59,13 @@ def get_lock(input, state):
 def locktest(input, state):
     state['seq'] += 1
 
-    modify(input['guid'], input['worker'],
-           '/tmp/locktest.' + state['index'], 'main')
+    modify(input['guid'], input['worker'], 'locktest.' + state['index'], 'main')
 
     locks = list(state['index'])
     locks.extend(state['random'])
 
     for l in state['random']:
-        modify(input['guid'], input['worker'], '/tmp/locktest.' + l, '')
+        modify(input['guid'], input['worker'], 'locktest.' + l, '')
 
     return ('unlock', 'file modified', state,
             ['locktest-{0}'.format(l) for l in locks])
@@ -83,7 +82,7 @@ def loop(input, state):
 def send_file(input, state):
     state['seq'] += 1
 
-    filename = '/tmp/locktest.' + str(input['worker'])
+    filename = 'locktest.' + str(input['worker'])
 
     if os.path.isfile(filename):
         message = dict(appid=100000,
