@@ -160,10 +160,7 @@ def insert_worker(appid, continuation, pool, priority):
 
     return workerid
 
-@app.route('/workers', methods=['POST', 'PUT'])
-@transaction
-def add_worker():
-    req      = validate_request()
+def create_worker(req):
     appid    = req['appid']
     pool     = req.get('pool', 'default')
     priority = req.get('priority', 128)
@@ -171,14 +168,25 @@ def add_worker():
     if 'workflow' in req:
         req['data'] = dict(workflow=req['workflow'], input=req['data'])
 
-    workerid = insert_worker(appid, json.dumps(req['data']), pool, priority)
+    return insert_worker(appid,
+                         json.dumps(req['data'], indent=4, sort_keys=True),
+                         pool,
+                         priority)
 
-    if 'PUT' == flask.request.method:
-        query("insert into workernames set appid=%s, workername=%s,workerid=%s",
-              (req['appid'], req['workername'], workerid))
-        return dict(workername=req['workername'])
+@app.route('/workers', methods=['POST'])
+@transaction
+def post_worker():
+    return dict(workerid=create_worker(validate_request()))
 
-    return dict(workerid=workerid)
+@app.route('/workers/<workername>', methods=['PUT'])
+@transaction
+def put_worker(workername):
+    req = validate_request()
+
+    query("insert into workernames set appid=%s, workername=%s,workerid=%s",
+          (req['appid'], workername, create_worker(req)))
+
+    return dict(workername=workername)
 
 @app.route('/workers/<workerid>', methods=['GET'])
 @transaction
@@ -196,7 +204,7 @@ def get_worker_status(workerid):
     if 1 != len(rows):
         throw(404, 'WORKER_NOT_FOUND')
 
-    return dict(status=json.loads(rows[0][0]))
+    return json.loads(rows[0][0])
 
 def mark_head(appid, workerid):
     msgid = query("""select msgid from messages
@@ -217,7 +225,7 @@ def add_msg(appid, workerid):
     delay    = req.get('delay', 0)
 
     if data:
-        data = json.dumps(data)
+        data = json.dumps(data, indent=4, sort_keys=True)
 
     if not appid.isdigit():
         rows = query("select appid from appnames where appname=%s", (appid))
@@ -280,7 +288,7 @@ def commit():
               (req['appid'], req['workerid']))
         query("""update workers set status=%s, continuation=null, state=%s
                  where workerid=%s and appid=%s
-              """, (json.dumps(workflow_status),
+              """, (json.dumps(workflow_status, indent=4, sort_keys=True),
                     workflow_state,
                     req['workerid'],
                     req['appid']))
@@ -288,7 +296,7 @@ def commit():
 
     def insert_message(appid, workerid, pool, code, data=None):
         if data:
-            data = json.dumps(data)
+            data = json.dumps(data, indent=4, sort_keys=True)
 
         query("""insert into messages
                  set workerid=%s, appid=%s,
@@ -387,8 +395,8 @@ def commit():
     mark_head(req['appid'], req['workerid'])
 
     query("update workers set status=%s, continuation=%s where workerid=%s",
-          (json.dumps(req['status']),
-           json.dumps(req['continuation']),
+          (json.dumps(req['status'], indent=4, sort_keys=True),
+           json.dumps(req['continuation'], indent=4, sort_keys=True),
            req['workerid']))
 
     return "OK"

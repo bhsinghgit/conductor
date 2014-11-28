@@ -29,28 +29,26 @@ def http_client(method, resource, args=None):
 workercount = int(sys.argv[3])
 
 guid = str(uuid.uuid4())
-http_client('PUT', '/workers',
+http_client('PUT', '/workers/sheepdog',
             dict(data=dict(expected=workercount, guid=guid),
-                 workflow='sheepdog',
-                 workername='sheepdog'))
+                 workflow='sheepdog'))
 
 for i in range(workercount):
-    http_client('PUT', '/workers',
+    http_client('PUT', '/workers/sheep-{0}'.format(i),
                 dict(data=dict(worker=i, count=workercount, guid=guid),
-                     workflow='sheep',
-                     workername='sheep-' + str(i)))
+                     workflow='sheep'))
 
 while True:
     result = http_client('GET', '/workers/sheepdog')
-    if (result['status'] is None) or ('NOT_FOUND' == result['status']):
+    if (result is None) or ('NOT_FOUND' == result):
         time.sleep(1)
         continue
 
-    print(result['status'])
+    print(result)
 
-    if 'SLEEPING_FOR_SIGNAL_5' == result['status']:
+    if 'SLEEPING_FOR_SIGNAL_5' == result:
         http_client('POST', '/messages/testapp/sheepdog', dict(code='report'))
 
-    if result['status'] in ['PASS', 'FAIL']:
+    if result in ['PASS', 'FAIL']:
         break
     time.sleep(1)
