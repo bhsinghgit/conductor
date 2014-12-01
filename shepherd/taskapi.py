@@ -64,11 +64,19 @@ def query(sql, params=None):
 def guid():
     return hashlib.md5(str(uuid.uuid4())).hexdigest()
 
-def validate_request():
+def validate_request(appname=None):
     req     = json.loads(flask.request.data)
-    appname = flask.request.headers.get('X-SHEPHERD-APPNAME')
-    appid   = flask.request.headers.get('X-SHEPHERD-APPID')
     authkey = flask.request.headers.get('X-SHEPHERD-AUTHKEY')
+
+    if appname:
+        rows = query("select appid from appnames where appname=%s", (appname))
+        if 1 != len(rows):
+            throw(404, 'INVALID_APPNAME')
+
+        appid = rows[0][0]
+    else:
+        appname = flask.request.headers.get('X-SHEPHERD-APPNAME')
+        appid   = flask.request.headers.get('X-SHEPHERD-APPID')
 
     if not authkey:
         throw(401, 'AUTHKEY_MISSING')
@@ -173,25 +181,25 @@ def create_worker(req):
                          pool,
                          priority)
 
-@app.route('/workers', methods=['POST'])
+@app.route('/workers/<appname>', methods=['POST'])
 @transaction
-def post_worker():
-    return dict(workerid=create_worker(validate_request()))
+def post_worker(appname):
+    return dict(workerid=create_worker(validate_request(appname)))
 
-@app.route('/workers/<workername>', methods=['PUT'])
+@app.route('/workers/<appname>/<workername>', methods=['PUT'])
 @transaction
-def put_worker(workername):
-    req = validate_request()
+def put_worker(appname, workername):
+    req = validate_request(appname)
 
     query("insert into workernames set appid=%s, workername=%s,workerid=%s",
           (req['appid'], workername, create_worker(req)))
 
     return dict(workername=workername)
 
-@app.route('/workers/<workerid>', methods=['GET'])
+@app.route('/workers/<appname>/<workerid>', methods=['GET'])
 @transaction
-def get_worker_status(workerid):
-    req = validate_request()
+def get_worker_status(appname, workerid):
+    req = validate_request(appname)
 
     if not workerid.isdigit():
         workerid = query("""select workerid from workernames

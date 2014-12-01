@@ -10,7 +10,6 @@ conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
 
 def http_client(method, resource, args=None):
     header = {
-        'X-SHEPHERD-APPNAME' : 'testapp',
         'X-SHEPHERD-AUTHKEY' : 'testkey'
     }
 
@@ -29,17 +28,17 @@ def http_client(method, resource, args=None):
 workercount = int(sys.argv[3])
 
 guid = str(uuid.uuid4())
-http_client('PUT', '/workers/sheepdog',
+http_client('PUT', '/workers/testapp/sheepdog',
             dict(data=dict(expected=workercount, guid=guid),
                  workflow='sheepdog'))
 
 for i in range(workercount):
-    http_client('PUT', '/workers/sheep-{0}'.format(i),
+    http_client('PUT', '/workers/testapp/sheep-{0}'.format(i),
                 dict(data=dict(worker=i, count=workercount, guid=guid),
                      workflow='sheep'))
 
 while True:
-    result = http_client('GET', '/workers/sheepdog')
+    result = http_client('GET', '/workers/testapp/sheepdog')
     if (result is None) or ('NOT_FOUND' == result):
         time.sleep(1)
         continue
