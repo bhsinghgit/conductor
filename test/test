@@ -10,6 +10,7 @@ conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
 
 def http_client(method, resource, args=None):
     header = {
+        'X-SHEPHERD-APPNAME' : 'testapp',
         'X-SHEPHERD-AUTHKEY' : 'testkey'
     }
 
