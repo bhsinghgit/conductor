@@ -110,16 +110,13 @@ def worker(state, event):
     if 'unlock' == result[0]:
         commit_dict['unlock'] = result[3]
 
-    if 'alarm' == result[0]:
-        commit_dict['alarm'] = result[3]
-
     if 'message' == result[0]:
         commit_dict['message'] = result[3]
 
     if (next_state is not None) and ('lock' != result[0]):
         commit_dict['alarm'] = 0
 
-    if 'retry' == result[0]:
+    if  result[0] in ['alarm', 'retry']:
         commit_dict['alarm'] = result[3]
 
     log('state transition. method({0}) return({1}) next({2})'.format(
