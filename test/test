@@ -10,8 +10,8 @@ conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
 
 def http_client(method, resource, args=None):
     header = {
-        'X-SHEPHERD-APPNAME' : 'testapp',
-        'X-SHEPHERD-AUTHKEY' : 'testkey'
+        'X-SHEPHERD-APPNAME' : appname,
+        'X-SHEPHERD-AUTHKEY' : appkey
     }
 
     conn.request(method, resource, json.dumps(args), header)
@@ -26,20 +26,25 @@ def http_client(method, resource, args=None):
         print(response.read())
         exit(1)
 
-workercount = int(sys.argv[3])
+appname = sys.argv[3]
+appkey = sys.argv[4]
+workercount = int(sys.argv[5])
 
 guid = str(uuid.uuid4())
-http_client('PUT', '/workers/testapp/sheepdog',
-            dict(data=dict(expected=workercount, guid=guid),
+http_client('PUT', '/workers/{0}/sheepdog'.format(appname),
+            dict(data=dict(expected=workercount, guid=guid, appname=appname),
                  workflow='sheepdog'))
 
 for i in range(workercount):
-    http_client('PUT', '/workers/testapp/sheep-{0}'.format(i),
-                dict(data=dict(worker=i, count=workercount, guid=guid),
+    http_client('PUT', '/workers/{0}/sheep-{1}'.format(appname, i),
+                dict(data=dict(worker=i,
+                               count=workercount,
+                               guid=guid,
+                               appname=appname),
                      workflow='sheep'))
 
 while True:
-    result = http_client('GET', '/workers/testapp/sheepdog')
+    result = http_client('GET', '/workers/{0}/sheepdog'.format(appname))
     if (result is None) or ('NOT_FOUND' == result):
         time.sleep(1)
         continue
@@ -47,7 +52,9 @@ while True:
     print(result)
 
     if 'SLEEPING_FOR_SIGNAL_5' == result:
-        http_client('POST', '/messages/testapp/sheepdog', dict(code='report'))
+        http_client('POST',
+                    '/messages/{0}/sheepdog'.format(appname),
+                    dict(code='report'))
 
     if result in ['PASS', 'FAIL']:
         break

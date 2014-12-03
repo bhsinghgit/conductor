@@ -21,7 +21,7 @@ def handler(input, state, event):
 
         messages = list()
         for i in range(input['expected']):
-            messages.append(dict(appname='testapp',
+            messages.append(dict(appname=input['appname'],
                                  workername='sheep-' + str(i),
                                  code='signal'))
 

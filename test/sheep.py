@@ -76,7 +76,10 @@ def loop(input, state):
     if state['seq'] < 5:
         return ('retry', 'waiting in the loop', state, 1)
 
-    message = dict(appname='testapp', workername='sheepdog', code='inform')
+    message = dict(appname=input['appname'],
+                   workername='sheepdog',
+                   code='inform')
+
     return ('message', 'informing sheepdog', state, [message])
 
 def send_file(input, state):
@@ -85,16 +88,19 @@ def send_file(input, state):
     filename = 'locktest.' + str(input['worker'])
 
     if os.path.isfile(filename):
-        message = dict(appid=100000,
+        message = dict(appname=input['appname'],
                        workername='sheepdog',
                        code='file',
                        data=json.loads(open(filename).read()))
     else:
-        message = dict(appname='testapp',
+        message = dict(appname=input['appname'],
                        workerid=1,
                        code='file',
-                       data=dict(guid=input['guid'], total=0,
-                                  workers=[], extraTotal=0, extraWorkers=[]))
+                       data=dict(guid=input['guid'],
+                                 total=0,
+                                 workers=[],
+                                 extraTotal=0,
+                                 extraWorkers=[]))
 
     return ('message', 'sending message', state, [message])
 

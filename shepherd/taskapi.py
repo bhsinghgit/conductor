@@ -223,7 +223,7 @@ def mark_head(appid, workerid):
     if len(msgid) > 0:
         query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
 
-@app.route('/messages/<appid>/<workerid>', methods=['POST'])
+@app.route('/messages/<appname>/<workerid>', methods=['POST'])
 @transaction
 def add_msg(appid, workerid):
     req      = validate_request()
@@ -235,12 +235,10 @@ def add_msg(appid, workerid):
     if data:
         data = json.dumps(data, indent=4, sort_keys=True)
 
-    if not appid.isdigit():
-        rows = query("select appid from appnames where appname=%s", (appid))
-        if 1 != len(rows):
-            throw(404, 'INVALID_APPNAME')
-
-        appid = rows[0][0]
+    rows = query("select appid from appnames where appname=%s", (appname))
+    if 1 != len(rows):
+        throw(404, 'INVALID_APPNAME')
+    appid = rows[0][0]
 
     if not workerid.isdigit():
         rows = query("""select workerid from workernames

@@ -8,7 +8,7 @@ setup(
     author='Bhupendra Singh',
     url='https://github.com/bhsinghgit/shepherd',
     author_email='bhsingh@gmail.com',
-    version='0.23',
+    version='0.24',
     packages=['shepherd'],
     scripts=['bin/shepherd', 'bin/sheep'],
     name='shepherd'
