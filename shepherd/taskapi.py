@@ -225,7 +225,7 @@ def mark_head(appid, workerid):
 
 @app.route('/messages/<appname>/<workerid>', methods=['POST'])
 @transaction
-def add_msg(appid, workerid):
+def add_msg(appname, workerid):
     req      = validate_request()
     pool     = req.get('pool', 'default')
     priority = req.get('priority', 128)
