@@ -25,16 +25,16 @@ def transaction(f):
         db_cursor = db_conn.cursor()
 
         attempts = 0
-        status   = None
         while True:
             attempts += 1
+            status = None
             try:
                 response = f(*args, **kwargs)
                 db_conn.commit()
                 status = 200
             except pymysql.err.InternalError as e:
-                import pprint;pprint.pprint(e);
                 db_conn.rollback()
+                print(str(e))
                 time.sleep(1)
             except Exception as e:
                 db_conn.rollback()
@@ -88,6 +88,7 @@ def validate_request(appname=None):
         appid = query("select appid from appnames where appname=%s",
                       (appname))[0][0]
 
+    query("update apps set appid=appid where appid=appid")
     row = query("select authkey, state from apps where appid=%s", (appid))
 
     if 1 != len(row):
@@ -102,7 +103,8 @@ def validate_request(appname=None):
     if not req:
         req = dict()
 
-    req.update(dict(appid=appid, client_ip=flask.request.remote_addr))
+    clientip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
+    req.update(dict(appid=appid, client_ip=clientip))
 
     return req
 
@@ -152,9 +154,10 @@ def get_allocation():
             if count == start_count:
                 break
 
+    clientip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
     return dict(applications=apps,
                 allocation=allocation,
-                client_ip=flask.request.remote_addr)
+                client_ip=clientip)
 
 def insert_worker(appid, continuation, pool, priority):
     query("""insert into workers set appid=%s, state='active',

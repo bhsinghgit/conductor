@@ -187,7 +187,7 @@ while time.time() < timeout:
 
     while True:
         status, reason, msg = http_client('POST', '/commit', result)
-        if 500 != status:
+        if status < 500:
             break
 
-        time.sleep(1)
+        time.sleep(2)
