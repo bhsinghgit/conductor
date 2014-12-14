@@ -94,7 +94,7 @@ def send_file(input, state):
                        data=json.loads(open(filename).read()))
     else:
         message = dict(appname=input['appname'],
-                       workerid=1,
+                       workername='sheepdog',
                        code='file',
                        data=dict(guid=input['guid'],
                                  total=0,

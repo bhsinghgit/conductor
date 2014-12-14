@@ -12,39 +12,40 @@ def api(resource):
         sys.argv[2], sys.argv[3], resource)).read())
 
 thread   = sys.argv[1]
-session  = "%s.%010d.%06d" % (thread, int(time.time()), os.getpid())
 sequence = 0
+session  = "%s.%s.%d" % (thread,
+                         time.strftime('%y%m%d%H%M%S', time.gmtime()),
+                         os.getpid())
 
-def append(tag, msg):
+
+def log(msgORtag, message=None):
     global sequence
     sequence += 1
 
     utc = time.time()
 
-    os.write(3, '\n{0}.{1}.{2}.{3}.{4} {5}'.format(
-        session,
-        '%010d' % (sequence),
-        time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
-        '%06d' % (int((utc - int(utc)) * 1000000)),
-        tag,
-        msg
-    ))
-
-def blob(msg):
-    b64enc = base64.b64encode(msg)
-    append(len(b64enc), b64enc)
-    return 'blob-{0}'.format(sequence)
-
-def log(tag, msg=None):
-    if msg is None:
-        msg = tag
-        tag = '-'
+    if message:
+        tag = msgORtag
+        msg = message
+    else:
+        tag = 'LOG'
+        msg = msgORtag
 
     index = msg.find('\n')
     if index > -1:
-        append(tag, msg[:index])
-    else:
-        append(tag, msg)
+        tag = 'BLOB'
+        msg = base64.b64encode(msg)
+
+    os.write(3, '\n{0}.{1}.{2}.{3}.{4} : {5}'.format(
+        session,
+        sequence,
+        time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
+        '%06d' % (int((utc - int(utc)) * 1000000)),
+        tag,
+        msg))
+
+    return sequence
+
 
 def ymdH(subtract_hour=0):
     now = int(time.time()) - (subtract_hour*3600)
@@ -84,7 +85,6 @@ if thread in ['notifier', 'launcher', 'collector', 'shipper']:
 
     module.conf    = api('config')
     module.log     = log
-    module.blob    = blob
     module.api     = api
     module.timeout = time.time() + 300
 
