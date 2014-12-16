@@ -5,7 +5,7 @@ setuptools.setup(
     author='Bhupendra Singh',
     url='https://github.com/bhsinghgit/shepherd',
     author_email='bhsingh@gmail.com',
-    version='0.26',
+    version='0.27',
     install_requires=['flask', 'pymysql', 'gunicorn'],
     packages=['shepherd'],
     scripts=['bin/shepherd', 'bin/sheep'],

@@ -42,7 +42,7 @@ def init(input, state):
     for i in num:
         state['random'].append(str(i))
 
-    return ('ok', 'initialized', state)
+    return ('moveto', 'initialized', state, 'centralbox')
 
 def handler(input, state, event):
     return ('ok', 'got signal', state)
@@ -108,7 +108,7 @@ def done(input, state):
     return ('ok', 'done')
 
 workflow = {
-    ('init',      'ok'):      'get_lock',
+    ('init',      'moveto'):  'get_lock',
     ('get_lock',  'lock'):    'locktest',
     ('locktest',  'unlock'):  'loop',
     ('handler',   'ok'):      'send_file',

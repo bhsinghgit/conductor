@@ -6,7 +6,7 @@ import uuid
 import time
 import pymysql
 
-app = flask.Flask(__name__)
+application = flask.Flask(__name__)
 
 db_conn = pymysql.connect('127.0.0.1', 'root', '', 'shepherd')
 db_cursor = None
@@ -14,48 +14,53 @@ db_cursor = None
 def throw(response_code, error_msg):
     raise Exception((response_code, error_msg))
 
-def transaction(f):
-    @functools.wraps(f)
-    def f1(*args, **kwargs):
-        global db_cursor
-        msec = time.time() * 1000
+def transaction(*args, **kwargs):
+    def fun(f):
+        @application.route(*args, **kwargs)
+        @functools.wraps(f)
+        def f1(*args, **kwargs):
+            global db_cursor
+            msec = time.time() * 1000
 
-        if db_cursor:
-            db_cursor.close()
-        db_cursor = db_conn.cursor()
+            if db_cursor:
+                db_cursor.close()
+            db_cursor = db_conn.cursor()
 
-        attempts = 0
-        while True:
-            attempts += 1
-            status = None
-            try:
-                response = f(*args, **kwargs)
-                db_conn.commit()
-                status = 200
-            except pymysql.err.InternalError as e:
-                db_conn.rollback()
-                print(str(e))
-                time.sleep(1)
-            except Exception as e:
-                db_conn.rollback()
-                if type(e) is tuple:
-                    status   = e[0]
-                    response = e[1]
-                else:
-                    status   = 400
-                    response = str(e)
+            attempts = 0
+            while True:
+                attempts += 1
+                status = None
+                try:
+                    response = f(*args, **kwargs)
+                    db_conn.commit()
+                    status = 200
+                except pymysql.err.InternalError as e:
+                    db_conn.rollback()
+                    print(str(e))
+                    time.sleep(1)
+                except Exception as e:
+                    db_conn.rollback()
+                    if type(e) is tuple:
+                        status   = e[0]
+                        response = e[1]
+                    else:
+                        status   = 400
+                        response = str(e)
 
-            if status:
-                break
+                if status:
+                    break
 
-        if 200 != status:
-            print('attempts({0}) msec({1}) exception{2}'.format(
-                    attempts, int(time.time()*1000-msec), response))
+            if 200 != status:
+                print('attempts({0}) msec({1}) exception{2}'.format(
+                        attempts, int(time.time()*1000-msec), response))
 
-        return flask.Response(json.dumps(response, indent=4, sort_keys=True),
-                              status,
-                              mimetype='application/json')
-    return f1
+            return flask.Response(json.dumps(response,
+                                             indent=4,
+                                             sort_keys=True),
+                                  status,
+                                  mimetype='application/json')
+        return f1
+    return fun
 
 def query(sql, params=None):
     db_cursor.execute(sql, params)
@@ -108,13 +113,11 @@ def validate_request(appname=None):
 
     return req
 
-@app.route('/config', methods=['GET'])
-@transaction
+@transaction('/config', methods=['GET'])
 def get_config():
     return dict([(r[0], r[1]) for r in query("select * from config")])
 
-@app.route('/pending', methods=['GET'])
-@transaction
+@transaction('/pending', methods=['GET'])
 def get_allocation():
     apps = dict([(r[0], dict(authkey=r[1], path=r[2])) for r in  query(
                  "select appid, authkey, path from apps where state='active'")])
@@ -184,13 +187,11 @@ def create_worker(req):
                          pool,
                          priority)
 
-@app.route('/workers/<appname>', methods=['POST'])
-@transaction
+@transaction('/workers/<appname>', methods=['POST'])
 def post_worker(appname):
     return dict(workerid=create_worker(validate_request(appname)))
 
-@app.route('/workers/<appname>/<workername>', methods=['PUT'])
-@transaction
+@transaction('/workers/<appname>/<workername>', methods=['PUT'])
 def put_worker(appname, workername):
     req = validate_request(appname)
 
@@ -199,8 +200,7 @@ def put_worker(appname, workername):
 
     return dict(workername=workername)
 
-@app.route('/workers/<appname>/<workerid>', methods=['GET'])
-@transaction
+@transaction('/workers/<appname>/<workerid>', methods=['GET'])
 def get_worker_status(appname, workerid):
     req = validate_request(appname)
 
@@ -226,8 +226,7 @@ def mark_head(appid, workerid):
     if len(msgid) > 0:
         query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
 
-@app.route('/messages/<appname>/<workerid>', methods=['POST'])
-@transaction
+@transaction('/messages/<appname>/<workerid>', methods=['POST'])
 def add_msg(appname, workerid):
     req      = validate_request()
     pool     = req.get('pool', 'default')
@@ -272,8 +271,7 @@ def add_msg(appname, workerid):
 
     return "OK"
 
-@app.route('/commit', methods=['POST'])
-@transaction
+@transaction('/commit', methods=['POST'])
 def commit():
     req = validate_request()
 
@@ -410,8 +408,7 @@ def commit():
 
     return "OK"
 
-@app.route('/lockmessage', methods=['POST'])
-@transaction
+@transaction('/lockmessage', methods=['POST'])
 def lockmessage():
     sql1 = """select msgid, workerid, code, data from messages
               where timestamp < now() and state='head' and
@@ -462,6 +459,5 @@ def lockmessage():
     return "NOT_FOUND"
 
 if __name__ == '__main__':
-    app.debug = True
-    print('Starting.....')
-    app.run(host='0.0.0.0', port=6000)
+    application.debug = True
+    application.run(host='0.0.0.0', port=6000)
