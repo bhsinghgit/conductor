@@ -13,9 +13,9 @@ def api(resource):
 
 thread   = sys.argv[1]
 sequence = 0
-session  = "%s.%s.%d" % (thread,
-                         time.strftime('%y%m%d%H%M%S', time.gmtime()),
-                         os.getpid())
+session  = "[%s %s %d" % (thread,
+                          time.strftime('%y%m%d%H%M%S', time.gmtime()),
+                          os.getpid())
 
 
 def log(msgORtag, message=None):
@@ -36,7 +36,7 @@ def log(msgORtag, message=None):
         tag = 'BLOB'
         msg = base64.b64encode(msg)
 
-    os.write(3, '\n{0}.{1}.{2}.{3}.{4} : {5}'.format(
+    os.write(3, '\n{0} {1} {2}.{3} {4}] : {5}'.format(
         session,
         sequence,
         time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),

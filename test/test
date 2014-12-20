@@ -6,47 +6,56 @@ import time
 import httplib
 import optparse
 
-conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
-
 def http_client(method, resource, args=None):
     header = {
         'X-SHEPHERD-APPNAME' : appname,
         'X-SHEPHERD-AUTHKEY' : appkey
     }
 
-    conn.request(method, resource, json.dumps(args), header)
-    response = conn.getresponse()
+    try:
+        conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
+        conn.request(method, resource, json.dumps(args), header)
 
-    if 200 == response.status:
-        return json.loads(response.read())
-    else:
-        print(json.dumps(args, indent=4, sort_keys=True))
-        print('{0} {1} {2} {3}'.format(
-            method, resource, response.status, response.reason))
-        print(response.read())
-        exit(1)
+        response = conn.getresponse()
+        return response.status, response.reason, json.loads(response.read())
+    except Exception as e:
+        return 500, 'EXCEPTION', str(e)
 
 appname = sys.argv[3]
 appkey = sys.argv[4]
 workercount = int(sys.argv[5])
 
 guid = str(uuid.uuid4())
-http_client('PUT', '/workers/{0}/sheepdog'.format(appname),
-            dict(data=dict(expected=workercount, guid=guid, appname=appname),
-                 workflow='sheepdog'))
+
+status = 500
+while status != 200:
+    status, reason, msg = http_client('PUT',
+                                      '/workers/{0}/sheepdog'.format(appname),
+                                      dict(data=dict(expected=workercount,
+                                                     guid=guid,
+                                                     appname=appname),
+                                           workflow='sheepdog'))
+    time.sleep(5)
 
 for i in range(workercount):
-    http_client('PUT', '/workers/{0}/sheep-{1}'.format(appname, i),
-                dict(data=dict(worker=i,
-                               count=workercount,
-                               guid=guid,
-                               appname=appname),
-                     workflow='sheep'))
+    status = 500
+    while status != 200:
+        status, reason, msg = http_client('PUT',
+                                          '/workers/{0}/sheep-{1}'.format(
+                                              appname, i),
+                                          dict(data=dict(worker=i,
+                                                         count=workercount,
+                                                         guid=guid,
+                                                         appname=appname),
+                                               workflow='sheep'))
+        time.sleep(5)
 
 while True:
-    result = http_client('GET', '/workers/{0}/sheepdog'.format(appname))
-    if (result is None) or ('NOT_FOUND' == result):
-        time.sleep(1)
+    time.sleep(5)
+    status, reason, result = http_client('GET',
+                                         '/workers/%s/sheepdog' % (appname))
+
+    if (status != 200) or ('NOT_FOUND' == result):
         continue
 
     print(result)
@@ -58,4 +67,3 @@ while True:
 
     if result in ['PASS', 'FAIL']:
         break
-    time.sleep(1)

@@ -13,7 +13,7 @@ class Logger(object):
             session = time.strftime('%y%m%d%H%M%S', time.gmtime())
 
         self.sequence = 0
-        self.session  = "%s.%s.%d" % (thread, session, os.getpid())
+        self.session  = "[%s %s %d" % (thread, session, os.getpid())
 
     def log(self, msgORtag, message=None):
         self.sequence += 1
@@ -32,7 +32,7 @@ class Logger(object):
             tag = 'BLOB'
             msg = base64.b64encode(msg)
 
-        os.write(3, '\n{0}.{1}.{2}.{3}.{4} : {5}'.format(
+        os.write(3, '\n{0} {1} {2}.{3} {4}] : {5}'.format(
             self.session,
             self.sequence,
             time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
@@ -124,31 +124,41 @@ def worker(state, event):
     return commit_dict
 
 def http_client(method, resource, args):
+    start_time = time.time()
     headers = {
         'X-SHEPHERD-APPID'   : os.environ['APPID'],
         'X-SHEPHERD-AUTHKEY' : os.environ['AUTHKEY']
     }
 
-    args = json.dumps(args)
+    request  = None
+    status   = None
+    reason   = None
+    response = None
 
-    conn.request(method, resource, args, headers)
-
-    response = conn.getresponse()
-    res      = response.read()
-
-    logger.log('API', ('method({0}) resource({1}) status({2}) ' +
-                       'reason({3}) request({4}) response({5})').format(
-                       method, resource, response.status,
-                       response.reason, len(args), len(res)))
     try:
-        body = json.loads(res)
-    except ValueError:
-        body = None
+        request = json.dumps(args)
 
-    return response.status, response.reason, body
+        conn = httplib.HTTPConnection('{0}:{1}'.format(os.environ['APIHOST'],
+                                                       os.environ['APIPORT']))
+        conn.request(method, resource, request, headers)
+
+        handle   = conn.getresponse()
+        status   = handle.status
+        reason   = handle.reason
+        response = handle.read()
+    except Exception as e:
+        status   = 500
+        reason   = 'EXCEPTION'
+        response = json.dumps(str(e))
+
+    logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
+                       'request({4}) response({5}) usec({6})').format(
+                       method, resource, status, reason, len(request),
+                       len(response), int((time.time()-start_time)*1000000)))
+
+    return status, reason, json.loads(response)
 
 appdir = os.getcwd()
-conn   = httplib.HTTPConnection(os.environ['APIHOST']+':'+os.environ['APIPORT'])
 logger = Logger('worker')
 
 try:
@@ -184,9 +194,7 @@ while time.time() < timeout:
     result['msgid']    = msg['msgid']
     result['workerid'] = msg['workerid']
 
-    while True:
+    status = 500
+    while status > 499:
         status, reason, msg = http_client('POST', '/commit', result)
-        if status < 500:
-            break
-
-        time.sleep(2)
+        time.sleep(5)
