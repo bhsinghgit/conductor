@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import flask
 import json
 import functools
@@ -167,7 +168,7 @@ def insert_worker(appid, continuation, pool, priority):
              continuation=%s, status='null'""", (appid, continuation))
     workerid = query("select last_insert_id()")[0][0]
     query("""insert into messages
-             set workerid=%s, appid=%s, senderappid=%s, senderworkerid=%s,
+             set workerid=%s, appid=%s, senderworkerid=%s, senderappid=%s,
                  pool=%s, state='head',
                  priority=%s, code='init'
           """, (workerid, appid, workerid, appid, pool, priority))

@@ -1,4 +1,1 @@
-* * * * * cd /tmp/test && /tmp/test/bin/shepherd notifier <api-ip> <api-port>
-* * * * * cd /tmp/test && /tmp/test/bin/shepherd launcher <api-ip> <api-port>
-* * * * * cd /tmp/test && /tmp/test/bin/shepherd collector <api-ip> <api-port>
-* * * * * cd /tmp/test && /tmp/test/bin/shepherd shipper <api-ip> <api-port>
+* * * * * cd /tmp/test && /tmp/test/bin/shepherd launcher <api-ip>:<api-port>

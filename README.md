@@ -1,8 +1,10 @@
 An asynchronous task engine implemented in python.
 
-It can run raw tasks or activity based workflows. See worker.py and TestWorkflow.py for an example of each.
+It can run raw tasks or activity based workflows.
 
 Engine provides following features:
-1. Locks for synchronization.
-2. Ability to sleep for a user defined period.
-3. Message based communication between workflows.
+<ol>
+  <li>Locks for synchronization.</li>
+  <li>Ability to sleep for a user defined period.</li>
+  <li>Message based communication between workflows.</li>
+</ol>

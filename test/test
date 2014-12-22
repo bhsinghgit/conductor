@@ -35,7 +35,6 @@ while status != 200:
                                                      guid=guid,
                                                      appname=appname),
                                            workflow='sheepdog'))
-    time.sleep(5)
 
 for i in range(workercount):
     status = 500
@@ -48,7 +47,6 @@ for i in range(workercount):
                                                          guid=guid,
                                                          appname=appname),
                                                workflow='sheep'))
-        time.sleep(5)
 
 while True:
     time.sleep(5)
