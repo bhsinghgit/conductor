@@ -253,6 +253,7 @@ if 'launcher' == sys.argv[1]:
             logger.log('spawned count({0}) for uid({1})'.format(count, uid))
 
     time.sleep(1)
+    os.close(lockfd)
     os.system(' '.join(sys.argv) + '&')
 elif 'worker' == sys.argv[1]:
     appdir = os.getcwd()
