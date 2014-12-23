@@ -8,8 +8,8 @@ import optparse
 
 def http_client(method, resource, args=None):
     header = {
-        'X-SHEPHERD-APPNAME' : appname,
-        'X-SHEPHERD-AUTHKEY' : appkey
+        'X-SHEPHERD-APPNAME': appname,
+        'X-SHEPHERD-APPKEY': appkey
     }
 
     try:

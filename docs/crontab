@@ -1,1 +1,0 @@
-* * * * * cd /tmp/test && /tmp/test/bin/shepherd launcher <api-ip>:<api-port>

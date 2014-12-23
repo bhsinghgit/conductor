@@ -1,11 +1,16 @@
+#!/usr/bin/env python
+
+schema="""
 create database if not exists shepherd;
 use shepherd;
 
 create table apps(
     appid     int unsigned primary key auto_increment,
-    authkey   char(32)  not null,
+    appkey    char(32)  not null,
     state     char(16)  not null,
-    path      char(255) not null,
+    python    char(255),
+    syspath   char(255),
+    username  char(64),
     timestamp timestamp
 ) engine=innodb auto_increment=100000;
 
@@ -78,6 +83,41 @@ create index msg1 on messages(timestamp, state, lock_ip, appid, pool);
 create index msg2 on messages(appid, workerid, msgid);
 
 create table config(
-    name varchar(256) primary key,
+    name  varchar(256) primary key,
     value varchar(256)
 ) engine=innodb;
+
+create table agentkeys(
+    ip  char(15) primary key,
+    agentkey char(32)
+) engine=innodb;
+
+insert into apps values
+    (100001, 'testkey1', 'active','/tmp/abcd/bin/python', null,             null,       null),
+    (100002, 'testkey2', 'active','/tmp/abcd/bin/python', null,             'testapp2', null),
+    (100003, 'testkey3', 'active','/usr/bin/python',      '/tmp/sheeptest',  null,      null),
+    (100004, 'testkey4', 'active','/usr/bin/python',      '/tmp/sheeptest', 'testapp4', null);
+
+insert into appnames values
+    ('testapp1',   100001),
+    ('testapp2',   100002),
+    ('testapp3',   100003),
+    ('testapp4',   100004);
+
+insert into hosts values
+    (100001, '172.21.205.32', 100, 0),
+    (100002, '172.21.205.32', 100, 0),
+    (100003, '172.21.205.32', 100, 0),
+    (100004, '172.21.205.32', 100, 0);
+
+insert into pools values
+    (100001, 'centralbox', '172.21.205.32'),
+    (100002, 'centralbox', '172.21.205.32'),
+    (100003, 'centralbox', '172.21.205.32'),
+    (100004, 'centralbox', '172.21.205.32');
+
+insert into agentkeys values
+    ('172.21.205.32', 'somekey');
+"""
+
+print(schema)

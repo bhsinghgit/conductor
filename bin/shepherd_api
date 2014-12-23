@@ -1,19 +1,26 @@
 #!/usr/bin/env python
-import flask
 import json
-import functools
-import hashlib
-import uuid
 import time
+import flask
 import pymysql
+import hashlib
+import functools
 
 application = flask.Flask(__name__)
 
 db_conn = pymysql.connect('127.0.0.1', 'root', '', 'shepherd')
-db_cursor = None
+db_cursor = db_conn.cursor()
 
-def throw(response_code, error_msg):
-    raise Exception((response_code, error_msg))
+
+class CustomException():
+    def __init__(self, status, response):
+        self.status = status
+        self.response = response
+
+
+def throw(status, response):
+    raise CustomException(status, response)
+
 
 def transaction(*args, **kwargs):
     def fun(f):
@@ -23,39 +30,20 @@ def transaction(*args, **kwargs):
             global db_cursor
             msec = time.time() * 1000
 
-            if db_cursor:
-                db_cursor.close()
-            db_cursor = db_conn.cursor()
+            db_cursor.close()
+            db_cursor = db_conn.cursor(pymysql.cursors.DictCursor)
 
-            attempts = 0
-            while True:
-                attempts += 1
-                status = None
-                try:
-                    response = f(*args, **kwargs)
-                    db_conn.commit()
-                    status = 200
-                except pymysql.err.InternalError as e:
-                    db_conn.rollback()
-                    print(str(e))
-                    time.sleep(1)
-                except Exception as e:
-                    db_conn.rollback()
-                    if type(e) is tuple:
-                        status   = e[0]
-                        response = e[1]
-                    else:
-                        status   = 400
-                        response = str(e)
-
-                if status:
-                    break
-
-            if 200 != status:
-                print('attempts({0}) msec({1}) exception{2}'.format(
-                        attempts, int(time.time()*1000-msec), response))
+            try:
+                response = f(*args, **kwargs)
+                db_conn.commit()
+                status = 200
+            except CustomException as e:
+                db_conn.rollback()
+                status = e.status
+                response = e.response
 
             return flask.Response(json.dumps(response,
+                                             default=lambda o: str(o),
                                              indent=4,
                                              sort_keys=True),
                                   status,
@@ -63,69 +51,75 @@ def transaction(*args, **kwargs):
         return f1
     return fun
 
+
 def query(sql, params=None):
     db_cursor.execute(sql, params)
     return db_cursor.fetchall()
 
-def guid():
-    return hashlib.md5(str(uuid.uuid4())).hexdigest()
 
 def validate_request(appname=None):
-    req     = json.loads(flask.request.data)
-    authkey = flask.request.headers.get('X-SHEPHERD-AUTHKEY')
+    req = json.loads(flask.request.data)
+    appkey = flask.request.headers.get('X-SHEPHERD-APPKEY')
+    agentip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
 
     if appname:
         rows = query("select appid from appnames where appname=%s", (appname))
         if 1 != len(rows):
             throw(404, 'INVALID_APPNAME')
 
-        appid = rows[0][0]
+        appid = rows[0]['appid']
     else:
         appname = flask.request.headers.get('X-SHEPHERD-APPNAME')
         appid   = flask.request.headers.get('X-SHEPHERD-APPID')
 
-    if not authkey:
-        throw(401, 'AUTHKEY_MISSING')
+    if not appkey:
+        throw(401, 'APPKEY_MISSING')
 
     if not (appname or appid):
         throw(400, 'BOTH_APPNAME_APPID_MISSING')
 
     if not appid:
         appid = query("select appid from appnames where appname=%s",
-                      (appname))[0][0]
+                      (appname))[0]['appid']
 
     query("update apps set appid=appid where appid=appid")
-    row = query("select authkey, state from apps where appid=%s", (appid))
+    row = query("select appkey, state from apps where appid=%s", (appid))
 
     if 1 != len(row):
         throw(400, 'INVALID_APP')
 
-    if authkey != row[0][0]:
-        throw(403, 'KEY_MISMATCH')
+    if 'X-SHEPHERD-AGENTKEY' in flask.request.headers:
+        if appkey != hashlib.md5(agentip+row[0]['appkey']).hexdigest():
+            throw(403, 'KEY_MISMATCH')
+    else:
+        if appkey != row[0]['appkey']:
+            throw(403, 'KEY_MISMATCH')
 
-    if 'active' != row[0][1]:
+    if 'active' != row[0]['state']:
         throw(404, 'INACTIVE_APP')
 
     if not req:
         req = dict()
 
-    clientip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
-    req.update(dict(appid=appid, client_ip=clientip))
+    req.update(dict(appid=appid, agentip=agentip))
 
     return req
 
+
 @transaction('/config', methods=['GET'])
-def get_config():
-    return dict([(r[0], r[1]) for r in query("select * from config")])
+def config_get():
+    return dict([(r['name'], r['value'])
+                for r in query("select * from config")])
+
 
 @transaction('/pending', methods=['GET'])
-def get_allocation():
-    apps = dict([(r[0], dict(authkey=r[1], path=r[2])) for r in  query(
-                 "select appid, authkey, path from apps where state='active'")])
+def pending_get():
+    apps = dict([(r['appid'], r)
+                 for r in  query("select * from apps where state='active'")])
 
     counts = dict()
     for appid in apps.keys():
-        counts[appid] = dict([(h[0], h[1]) for h in query("""
+        counts[appid] = dict([(h['ip'], h['count_async']) for h in query("""
             select ip, count_async from hosts where appid=%s""", (appid))])
 
     msgs = query("""select appid, pool, count(*) as count
@@ -134,39 +128,51 @@ def get_allocation():
                     group by appid, pool""")
 
     allocation = dict()
-    for appid, pool, count in msgs:
-        if appid not in apps:
+    for m in msgs:
+        if m['appid'] not in apps:
             continue
 
-        if 'default' == pool:
-            ip_list = [r[0] for r in query("""select distinct ip
-                from hosts where appid=%s""", (appid))]
+        if 'default' == m['pool']:
+            ip_list = [r['ip'] for r in query("""select distinct ip
+                from hosts where appid=%s""", (m['appid']))]
         else:
-            ip_list = [r[0] for r in query("""select distinct ip
-                from pools where appid=%s and pool=%s""", (appid, pool))]
+            ip_list = [r['ip'] for r in
+                       query("""select distinct ip from pools
+                        where appid=%s and pool=%s""", (m['appid'], m['pool']))]
 
-        while count > 0:
-            start_count = count
+        while m['count'] > 0:
+            start_count = m['count']
             for ip in ip_list:
-                allocation.setdefault(ip, dict()).setdefault(appid, 0)
+                allocation.setdefault(ip, dict()).setdefault(m['appid'], 0)
 
-                if allocation[ip][appid] < counts[appid][ip]:
-                    allocation[ip][appid] += 1
-                    count -= 1
-                    if 0 == count:
+                if allocation[ip][m['appid']] < counts[m['appid']][ip]:
+                    allocation[ip][m['appid']] += 1
+                    m['count'] -= 1
+                    if 0 == m['count']:
                         break
-            if count == start_count:
+            if m['count'] == start_count:
                 break
 
-    clientip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
+    agentip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
+    agentkey = flask.request.headers.get('X-SHEPHERD-AGENTKEY')
+
+    rec = query("select agentkey from agentkeys where ip=%s", (agentip))
+    if (1 != len(rec)) or (agentkey != rec[0]['agentkey']):
+        for k, v in apps.iteritems():
+            del(v['appkey'])
+    else:
+        for k, v in apps.iteritems():
+            v['appkey'] = hashlib.md5(agentip+v['appkey']).hexdigest()
+    
     return dict(applications=apps,
                 allocation=allocation,
-                client_ip=clientip)
+                agentip=agentip)
+
 
 def insert_worker(appid, continuation, pool, priority):
     query("""insert into workers set appid=%s, state='active',
              continuation=%s, status='null'""", (appid, continuation))
-    workerid = query("select last_insert_id()")[0][0]
+    workerid = query("select last_insert_id() as workerid")[0]['workerid']
     query("""insert into messages
              set workerid=%s, appid=%s, senderworkerid=%s, senderappid=%s,
                  pool=%s, state='head',
@@ -174,6 +180,7 @@ def insert_worker(appid, continuation, pool, priority):
           """, (workerid, appid, workerid, appid, pool, priority))
 
     return workerid
+
 
 def create_worker(req):
     appid    = req['appid']
@@ -188,18 +195,21 @@ def create_worker(req):
                          pool,
                          priority)
 
+
 @transaction('/workers/<appname>', methods=['POST'])
-def post_worker(appname):
+def worker_post(appname):
     return dict(workerid=create_worker(validate_request(appname)))
 
+
 @transaction('/workers/<appname>/<workername>', methods=['PUT'])
-def put_worker(appname, workername):
+def worker_put(appname, workername):
     req = validate_request(appname)
 
     query("insert into workernames set appid=%s, workername=%s,workerid=%s",
           (req['appid'], workername, create_worker(req)))
 
     return dict(workername=workername)
+
 
 @transaction('/workers/<appname>/<workerid>', methods=['GET'])
 def get_worker_status(appname, workerid):
@@ -208,7 +218,7 @@ def get_worker_status(appname, workerid):
     if not workerid.isdigit():
         workerid = query("""select workerid from workernames
                             where appid=%s and workername=%s
-                         """, (req['appid'], workerid))[0][0]
+                         """, (req['appid'], workerid))[0]['workerid']
 
     rows = query("select status from workers where workerid=%s and appid=%s",
                  (workerid, req['appid']))
@@ -216,7 +226,8 @@ def get_worker_status(appname, workerid):
     if 1 != len(rows):
         throw(404, 'WORKER_NOT_FOUND')
 
-    return json.loads(rows[0][0])
+    return json.loads(rows[0]['status'])
+
 
 def mark_head(appid, workerid):
     msgid = query("""select msgid from messages
@@ -225,7 +236,9 @@ def mark_head(appid, workerid):
                   """,
                   (appid, workerid))
     if len(msgid) > 0:
-        query("update messages set state='head' where msgid=%s ", (msgid[0][0]))
+        query("""update messages set state='head'
+                 where msgid=%s""", (msgid[0]['msgid']))
+
 
 @transaction('/messages/<appname>/<workerid>', methods=['POST'])
 def add_msg(appname, workerid):
@@ -241,7 +254,7 @@ def add_msg(appname, workerid):
     rows = query("select appid from appnames where appname=%s", (appname))
     if 1 != len(rows):
         throw(404, 'INVALID_APPNAME')
-    appid = rows[0][0]
+    appid = rows[0]['appid']
 
     if not workerid.isdigit():
         rows = query("""select workerid from workernames
@@ -250,7 +263,7 @@ def add_msg(appname, workerid):
         if 1 != len(rows):
             throw(404, 'INVALID_WORKERNAME')
 
-        workerid = rows[0][0]
+        workerid = rows[0]['workerid']
 
     rows = query("""select appid from workers
                     where workerid=%s and state != 'done'
@@ -279,7 +292,7 @@ def commit():
     pool = query("select pool from messages where msgid=%s", (req['msgid']))
     query("delete from messages where msgid=%s", (req['msgid']))
 
-    pool = req.get('pool', pool[0][0])
+    pool = req.get('pool', pool[0]['pool'])
 
     if 'continuation' not in req:
         if 'exception' in req:
@@ -320,7 +333,7 @@ def commit():
         if len(row) < 1:
             return None, None
         else:
-            return row[0][0], row[0][1]
+            return row[0]['appid'], row[0]['workerid']
 
     if 'lock' in req:
         for lockname in set(req['lock']):
@@ -333,7 +346,7 @@ def commit():
                            where lockname=%s order by sequence limit 1
                         """, (lockname))
 
-            if row[0][0] == req['workerid']:
+            if row[0]['workerid'] == req['workerid']:
                 counter += 1
 
         if len(set(req['lock'])) == counter:
@@ -356,8 +369,8 @@ def commit():
                               """, (other_appid, other_workerid))
 
                 counter = 0
-                for otherlock in locks:
-                    tmp_appid, tmp_workerid = get_lock_holder(otherlock)
+                for l in locks:
+                    tmp_appid, tmp_workerid = get_lock_holder(l['lockname'])
                     if other_workerid == tmp_workerid:
                         counter += 1
 
@@ -372,12 +385,12 @@ def commit():
         for msg in req['message']:
             if 'appid' not in msg:
                 msg['appid'] = query("""select appid from appnames
-                    where appname=%s""", (msg['appname']))[0][0]
+                    where appname=%s""", (msg['appname']))[0]['appid']
 
             if 'workerid' not in msg:
                 msg['workerid'] = query("""select workerid
                     from workernames where appid=%s and workername=%s""",
-                    (msg['appid'], msg['workername']))[0][0]
+                    (msg['appid'], msg['workername']))[0]['workerid']
 
             insert_message(msg['appid'], msg['workerid'],
                 msg.get('pool', 'default'),
@@ -410,23 +423,22 @@ def commit():
     return "OK"
 
 @transaction('/lockmessage', methods=['POST'])
-def lockmessage():
+def lockmessage_post():
     sql1 = """select msgid, workerid, code, data from messages
               where timestamp < now() and state='head' and
                     appid=%s and pool=%s and lock_ip is null
               order by priority limit 1
            """
 
-    req   = validate_request()
+    req = validate_request()
     appid = req['appid']
 
-    hosts = dict([(r[0], r[1]) for r in
-                  query("select ip, count_async from hosts where appid=%s",
-                        (appid))])
+    hosts = dict([(r['ip'], r) for r in
+                  query("select * from hosts where appid=%s", (appid))])
 
     pools = dict()
-    for pool, ip in query("select pool, ip from pools where appid=%s", (appid)):
-        pools.setdefault(pool, list()).append(ip)
+    for rec in query("select pool, ip from pools where appid=%s", (appid)):
+        pools.setdefault(rec['pool'], list()).append(rec['ip'])
 
     pools['default'] = hosts.keys()
 
@@ -434,26 +446,23 @@ def lockmessage():
         for ip in sorted(set(pools[pool])):
             rows = query(sql1, (req['appid'], pool))
             if len(rows) > 0:
-                msgid, workerid, code, data = rows[0]
-
                 query("update messages set lock_ip=%s where msgid=%s",
-                      (req['client_ip'], msgid))
+                      (req['agentip'], rows[0]['msgid']))
                 query("""update workers set session=session+1
-                         where workerid=%s
-                      """, (workerid))
+                         where workerid=%s""", (rows[0]['workerid']))
 
-                continuation, session = query("""select continuation, session
-                    from workers where workerid=%s """, (workerid))[0]
+                worker = query("""select continuation, session from workers
+                               where workerid=%s""", (rows[0]['workerid']))[0]
 
-                result = dict(msgid        = msgid,
-                              workerid     = workerid,
-                              session      = session,
-                              continuation = json.loads(continuation),
-                              code         = code,
+                result = dict(msgid        = rows[0]['msgid'],
+                              workerid     = rows[0]['workerid'],
+                              session      = worker['session'],
+                              continuation = json.loads(worker['continuation']),
+                              code         = rows[0]['code'],
                               pool         = pool)
 
-                if data:
-                    result['data'] = json.loads(data)
+                if rows[0]['data']:
+                    result['data'] = json.loads(rows[0]['data'])
 
                 return result
 
@@ -461,4 +470,4 @@ def lockmessage():
 
 if __name__ == '__main__':
     application.debug = True
-    application.run(host='0.0.0.0', port=6000)
+    application.run(host='0.0.0.0', port=5000)
