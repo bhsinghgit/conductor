@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-#* * * * * cd /tmp/test && key=<agentkey> /tmp/test/bin/shepherd launcher <api-ip>:<api-port>
+#* * * * * cd /tmp/test && \
+#    key=<agentkey> /tmp/test/bin/shepherd launcher <api-ip>:<api-port>
 
 import os
 import re
@@ -26,6 +27,7 @@ def http(method, resource, args=None):
     status   = None
     reason   = None
     response = None
+    conn     = None
 
     try:
         request = json.dumps(args)
@@ -41,6 +43,9 @@ def http(method, resource, args=None):
         status   = 500
         reason   = 'EXCEPTION'
         response = json.dumps(str(e))
+
+    if conn:
+        conn.close()
 
     logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
                        'request({4}) response({5}) usec({6})').format(
@@ -174,6 +179,8 @@ logger = Logger(sys.argv[1])
 
 
 if 'launcher' == sys.argv[1]:
+    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+
     if not os.path.isdir('apps'):
         os.mkdir('apps')
 
@@ -185,13 +192,6 @@ if 'launcher' == sys.argv[1]:
     os.dup2(os.open('log.%d' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 3)
     os.dup2(1, 2)
 
-    try:
-        lockfd = os.open('apps', os.O_RDONLY)
-        fcntl.flock(lockfd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-    except:
-        logger.log('could not acquire lock. launcher is already running')
-        exit(0)
-
     oldseq = int(time.strftime('%y%m%d%H',
         time.gmtime(((time.time()-6*3600)//(6*3600))*6*3600)))
     for path in os.listdir('.'):
@@ -200,10 +200,18 @@ if 'launcher' == sys.argv[1]:
             if int(match.group(2)) < oldseq:
                 os.remove(path)
                 logger.log('removed {0}'.format(path))
+            elif match.group(1) == 'log':
+                os.system('{0} shipper {1} {2} &'.format(
+                    sys.argv[0], sys.argv[2], match.group(0)))
+
+    try:
+        lockfd = os.open('apps', os.O_RDONLY)
+        fcntl.flock(lockfd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except:
+        logger.log('could not acquire lock. launcher is already running')
+        exit(0)
 
     os.environ['API'] = sys.argv[2]
-
-    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
     timeout = time.time() + 300
     while time.time() < timeout:
@@ -267,6 +275,43 @@ if 'launcher' == sys.argv[1]:
 
     time.sleep(1)
     os.close(lockfd)
+    os.system(' '.join(sys.argv) + '&')
+elif 'shipper' == sys.argv[1]:
+    os.environ['API'] = sys.argv[2]
+    logfile = sys.argv[3]
+
+    try:
+        fd = os.open(logfile, os.O_RDONLY)
+        fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except:
+        logger.log('could not access {0}'.format(logfile))
+        exit(0)
+
+    timeout = time.time() + 300
+
+    while time.time() < timeout:
+        status, reason, reply = http('POST', '/log/{0}/0'.format(logfile), '')
+        if (200 == status) and ('size' in reply):
+            break
+
+        time.sleep(random.randint(5, 15))
+
+    logger.log = lambda tag, msg: None
+
+    while time.time() < timeout:
+        if reply['size'] < os.fstat(fd).st_size:
+            os.lseek(fd, reply['size'], os.SEEK_SET)
+            status, reason, reply = http('POST',
+                                         '/log/{0}/{1}'.format(logfile,
+                                                               reply['size']),
+                                         os.read(fd, 1024*1024))
+            if 200 != status:
+                time.sleep(random.randint(5, 15))
+        else:
+            time.sleep(1)
+
+    time.sleep(1)
+    os.close(fd)
     os.system(' '.join(sys.argv) + '&')
 elif 'worker' == sys.argv[1]:
     appdir = os.getcwd()

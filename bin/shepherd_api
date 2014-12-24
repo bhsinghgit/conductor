@@ -1,7 +1,11 @@
 #!/usr/bin/env python
+import os
+import re
 import json
 import time
+import fcntl
 import flask
+import sqlite3
 import pymysql
 import hashlib
 import functools
@@ -467,6 +471,112 @@ def lockmessage_post():
                 return result
 
     return "NOT_FOUND"
+
+LOGHOME = '/tmp/shepherd'
+HEADER = re.compile('^\[(.+) (\d+) (\d+) (\d+) (\d{6}\.\d{6}\.\d{6}) (.+)\] : ')
+@transaction('/log/<logfile>/<size>', methods=['POST'])
+def log_put(logfile, size):
+    agentip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
+
+    agentdir = os.path.join(LOGHOME, 'logs', agentip)
+    if not os.path.isdir(agentdir):
+        os.makedirs(agentdir)
+
+    fd = None
+    logfile = os.path.join(agentdir, logfile)
+    try:
+        fd = os.open(logfile, os.O_CREAT|os.O_WRONLY|os.O_APPEND)
+        fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except:
+        os.close(fd)
+        throw(400, 'FILE LOCKED')
+
+    if os.fstat(fd).st_size == int(size):
+        os.write(fd, json.loads(flask.request.data))
+
+    result = dict(size=os.fstat(fd).st_size)
+    os.close(fd)
+
+    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    conn.execute("""create table if not exists offsets(
+        thread text, session integer, offset integer,
+        logfile text, primary key(thread, session))""")
+    conn.execute("""create table if not exists files(
+        logfile text, offset integer, primary key(logfile))""")
+    offset = conn.execute("select offset from files where logfile=?",
+                          [logfile]).fetchone()
+    offset = offset[0] if offset else 0
+    conn.execute("insert or ignore into files values(?, ?)", (logfile, offset))
+    conn.commit()
+    conn.close()
+
+    file = open(logfile, 'r')
+    file.seek(offset)
+    index_dict = dict()
+    for line in file:
+        m = HEADER.match(line)
+        if m:
+            key = (m.group(1), m.group(2))
+            if key not in index_dict:
+                index_dict[key] = offset
+        offset += len(line)
+    file.close()
+
+    index_list = list()
+    for k, v in index_dict.iteritems():
+        index_list.append((k[0], k[1], v, logfile))
+
+    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    conn.executemany("insert or ignore into offsets values(?,?,?,?)",
+        index_list)
+    conn.execute("update files set offset=? where logfile=?", (offset, logfile))
+    conn.commit()
+    conn.close()
+
+    return result
+
+
+@transaction('/log/threads', methods=['GET'])
+def threads_get():
+    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    result = conn.execute("select distinct thread from offsets").fetchall()
+    conn.close()
+    return dict(count=len(result), threads=[r[0] for r in result])
+
+
+@transaction('/log/thread/<thread>', methods=['GET'])
+def thread_get(thread):
+    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    result = conn.execute("""select session, offset, logfile from offsets
+                             where thread=?""", (thread,)).fetchall()
+    conn.close()
+    return dict(thread=thread,
+                count=len(result),
+                sessions=dict([(r[0], dict(offset=r[1],
+                                           logfile=r[2])) for r in result]))
+
+
+@transaction('/log/msgs/<thread>/<session>', methods=['GET'])
+def session_get(thread, session):
+    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    logfile, offset = conn.execute("""select logfile, offset from offsets
+                                      where thread=? and session=?
+                                   """, (thread, session)).fetchone()
+    conn.close()
+
+    file = open(logfile, 'r')
+    file.seek(offset)
+
+    result = list()
+    tags = dict()
+    for line in file:
+        m = HEADER.match(line)
+        if m and (thread == m.group(1)) and (session == m.group(2)):
+            tags.setdefault(m.group(6), 0)
+            tags[m.group(6)] += 1
+            result.append(line)
+
+    return dict(count=tags, logs=result)
 
 if __name__ == '__main__':
     application.debug = True
