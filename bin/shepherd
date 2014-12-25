@@ -13,6 +13,7 @@ import signal
 import base64
 import random
 import httplib
+import hashlib
 
 
 def http(method, resource, args=None):
@@ -30,7 +31,7 @@ def http(method, resource, args=None):
     conn     = None
 
     try:
-        request = json.dumps(args)
+        request = json.dumps(args, indent=4, sort_keys=True)
 
         conn = httplib.HTTPConnection(os.environ['API'])
         conn.request(method, resource, request, headers)
@@ -47,10 +48,11 @@ def http(method, resource, args=None):
     if conn:
         conn.close()
 
-    logger.log('API', ('method({0}) resource({1}) status({2}) reason({3}) ' +
-                       'request({4}) response({5}) usec({6})').format(
-                       method, resource, status, reason, len(request),
-                       len(response), int((time.time()-start_time)*1000000)))
+    logger.log('API', ('method({0}) resource({1}) status({2}) msec({3}) ' +
+        'request({4}) response({5})').format(
+            method, resource, '{0} {1}'.format(status, reason),
+            int((time.time()-start_time)*1000),
+            logger.blob(request), logger.blob(response)))
 
     return status, reason, json.loads(response)
 
@@ -61,7 +63,7 @@ class Logger(object):
             session = time.strftime('%y%m%d%H%M%S', time.gmtime())
 
         self.sequence = 0
-        self.session  = "[%s %s %d" % (thread, session, os.getpid())
+        self.session  = "[%s %s" % (thread, session)
 
     def log(self, msgORtag, message=None):
         self.sequence += 1
@@ -75,23 +77,21 @@ class Logger(object):
             tag = 'LOG'
             msg = msgORtag
             
-        index = msg.find('\n')
-        if index > -1:
+        if ('BLOB' == tag) or (msg.find('\n') > -1):
             tag = 'BLOB'
             msg = base64.b64encode(msg)
 
-        os.write(3, '\n{0} {1} {2}.{3} {4}] : {5}'.format(
-            self.session,
-            self.sequence,
+        hdr = '{0} {1} {2}.{3} {4}]'.format(
+            self.session, self.sequence,
             time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
-            '%06d' % (int((utc - int(utc)) * 1000000)),
-            tag,
-            msg))
+            '%06d' % (int((utc - int(utc)) * 1000000)), tag)
 
-        return self.sequence
+        os.write(3, '\n{0} : {1}'.format(hdr, msg))
+
+        return hashlib.md5(hdr).hexdigest()
 
     def blob(self, msg):
-        return log('BLOB', msg)
+        return '<{0}>'.format(self.log('BLOB', msg))
 
 
 def worker(state, event):
