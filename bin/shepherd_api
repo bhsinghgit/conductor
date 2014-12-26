@@ -11,6 +11,127 @@ import pymysql
 import hashlib
 import functools
 
+schema="""
+create database if not exists shepherd;
+use shepherd;
+
+create table apps(
+    appid     int unsigned primary key auto_increment,
+    appkey    char(32)  not null,
+    state     char(16)  not null,
+    python    char(255),
+    syspath   char(255),
+    username  char(64),
+    timestamp timestamp
+) engine=innodb auto_increment=100000;
+
+create table appnames(
+    appname char(64) primary key,
+    appid   int unsigned,
+    foreign key(appid) references apps(appid)
+) engine=innodb;
+
+create table hosts(
+    appid       int unsigned not null,
+    ip          char(15)     not null,
+    count_async int unsigned not null,
+    count_sync  int unsigned not null,
+    primary key(appid, ip)
+) engine=innodb;
+
+create table pools(
+    appid int unsigned not null,
+    pool  char(32)     not null,
+    ip    char(15)     not null,
+    primary key(appid, pool, ip)
+) engine=innodb;
+
+create table locks(
+    sequence   bigint unsigned primary key auto_increment,
+    lockname   char(64)        not null,
+    appid      int unsigned    not null,
+    workerid   bigint unsigned not null,
+    unique(lockname, appid, workerid)
+) engine=innodb;
+create index lock1 on locks(appid, workerid, lockname);
+
+create table workers(
+    workerid     bigint unsigned primary key auto_increment,
+    appid        int unsigned not null,
+    state        char(16)     not null,
+    status       longblob,
+    continuation longblob,
+    session      int unsigned not null default 0,
+    created      timestamp default current_timestamp,
+    timestamp    timestamp,
+    foreign key(appid) references apps(appid)
+) engine=innodb;
+
+create table workernames(
+    appid      int unsigned not null,
+    workername char(64)     not null,
+    workerid   bigint unsigned,
+    primary key(appid, workername),
+    foreign key(workerid) references workers(workerid)
+) engine=innodb;
+
+create table messages(
+    msgid          bigint unsigned primary key auto_increment,
+    appid          int unsigned    not null,
+    workerid       bigint unsigned not null,
+    senderappid    int unsigned not null,
+    senderworkerid bigint unsigned not null,
+    pool           char(32) not null default 'default',
+    state          char(16) not null,
+    lock_ip        char(15),
+    priority       tinyint unsigned not null default 128,
+    code           char(64) not null,
+    data           longblob,
+    timestamp      timestamp default current_timestamp
+) engine=innodb;
+
+create index msg1 on messages(timestamp, state, lock_ip, appid, pool);
+create index msg2 on messages(appid, workerid, msgid);
+
+create table config(
+    name  varchar(256) primary key,
+    value varchar(256)
+) engine=innodb;
+
+create table agentkeys(
+    ip  char(15) primary key,
+    agentkey char(32)
+) engine=innodb;
+
+insert into apps values
+    (100001, 'testkey1', 'active','/tmp/abcd/bin/python', null,             null,       null),
+    (100002, 'testkey2', 'active','/tmp/abcd/bin/python', null,             'testapp2', null),
+    (100003, 'testkey3', 'active','/usr/bin/python',      '/tmp/sheeptest',  null,      null),
+    (100004, 'testkey4', 'active','/usr/bin/python',      '/tmp/sheeptest', 'testapp4', null);
+
+insert into appnames values
+    ('testapp1',   100001),
+    ('testapp2',   100002),
+    ('testapp3',   100003),
+    ('testapp4',   100004);
+
+insert into hosts values
+    (100001, '172.21.205.32', 100, 0),
+    (100002, '172.21.205.32', 100, 0),
+    (100003, '172.21.205.32', 100, 0),
+    (100004, '172.21.205.32', 100, 0);
+
+insert into pools values
+    (100001, 'centralbox', '172.21.205.32'),
+    (100002, 'centralbox', '172.21.205.32'),
+    (100003, 'centralbox', '172.21.205.32'),
+    (100004, 'centralbox', '172.21.205.32');
+
+insert into agentkeys values
+    ('172.21.205.32', 'somekey');
+"""
+
+
 application = flask.Flask(__name__)
 
 db_conn = pymysql.connect('127.0.0.1', 'root', '', 'shepherd')
@@ -125,8 +246,12 @@ def validate_request(appname=None):
 
 @transaction('/config', methods=['GET'])
 def config_get():
-    return dict([(r['name'], r['value'])
-                for r in query("select * from config")])
+    result = dict([(r['name'], r['value'])
+                  for r in query("select * from config")])
+
+    result['agentip'] = flask.request.headers.get('X-Real-IP',
+                                                  flask.request.remote_addr)
+    return result
 
 
 @transaction('/pending', methods=['GET'])
@@ -181,9 +306,7 @@ def pending_get():
         for k, v in apps.iteritems():
             v['appkey'] = hashlib.md5(agentip+v['appkey']).hexdigest()
     
-    return dict(applications=apps,
-                allocation=allocation,
-                agentip=agentip)
+    return dict(applications=apps, allocation=allocation)
 
 
 def insert_worker(appid, continuation, pool, priority):
@@ -485,7 +608,7 @@ def lockmessage_post():
 
     return "NOT_FOUND"
 
-LOGHOME = '/tmp/shepherd'
+LOGHOME = '/var/shepherd'
 regex = re.compile('^\[(.+) (\d+) (\d+) (\d{6}\.\d{6}\.\d{6}) (.+)\] : (.*)')
 
 @transaction('/log/<logfile>/<size>', methods=['POST'])
@@ -507,7 +630,7 @@ def log_put(logfile, size):
         throw(400, 'FILE LOCKED')
 
     if os.fstat(fd).st_size == int(size):
-        os.write(fd, json.loads(flask.request.data))
+        os.write(fd, flask.request.data)
 
     result = dict(size=os.fstat(fd).st_size)
     os.close(fd)
@@ -591,8 +714,7 @@ def logs_get(thread=None, session=None):
         file.seek(offset)
 
         result = list()
-        blobs  = set()
-        seek = file.tell()
+        blobs  = dict()
         for line in file:
             m = regex.match(line)
             if m and (thread == m.group(1)) and (session == m.group(2)):
@@ -600,16 +722,16 @@ def logs_get(thread=None, session=None):
                 if 'BLOB' == tag:
                     hdr = '[{0} {1} {2} {3} {4}]'.format(m.group(1),
                         m.group(2), seq, timestamp, tag)
-                    blobs.add(hashlib.md5(hdr).hexdigest())
+                    blobs[hashlib.md5(hdr).hexdigest()] = offset
                 else:
                     msg = m.group(6)
                     for m in re.findall('<\w{32}>', msg):
                         msg = msg.replace(m,
-                            '<a href="/blob/{0}/{1}/{2}">blob</a>'.format(
-                                logfile, m[1:33], seek))
+                            '<a href="/blob/{0}/{1}">blob</a>'.format(
+                                logfile, blobs[m[1:33]]))
 
                     result.append((timestamp, tag, msg))
-            seek = file.tell()
+            offset += len(line)
 
         response = html_table_response(''.join([
             '<tr class="{0}"><td>{1}</td><td>{2}</td></tr>'.format(
@@ -617,20 +739,15 @@ def logs_get(thread=None, session=None):
     return response
 
 
-@application.route('/blob/<ip>/<logfile>/<hash>/<offset>', methods=['GET'])
-def blob_get(ip, logfile, hash, offset):
+@application.route('/blob/<ip>/<logfile>/<offset>', methods=['GET'])
+def blob_get(ip, logfile, offset):
     file = open(os.path.join(LOGHOME, ip, logfile))
-    file.seek(max(0, int(offset)-65000))
+    file.seek(int(offset))
 
-    for line in file:
-        m = regex.match(line)
-        if m:
-            hdr = '[{0} {1} {2} {3} {4}]'.format(
-                m.group(1), m.group(2), m.group(3), m.group(4), m.group(5))
-
-            if hash == hashlib.md5(hdr).hexdigest():
-                return flask.Response(base64.b64decode(m.group(6)),
-                                      200, mimetype='text/plain')
+    m = regex.match(file.readline())
+    if m:
+        return flask.Response(base64.b64decode(m.group(6)),
+                             200, mimetype='text/plain')
 
     return flask.Response('NOT FOUND', 402, mimetype='text/plain')
 
