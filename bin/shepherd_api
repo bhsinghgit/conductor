@@ -611,34 +611,33 @@ def lockmessage_post():
 LOGHOME = '/var/shepherd'
 regex = re.compile('^\[(.+) (\d+) (\d+) (\d{6}\.\d{6}\.\d{6}) (.+)\] : (.*)')
 
-@transaction('/log/<logfile>/<size>', methods=['POST'])
+@application.route('/log/<logfile>/<size>', methods=['POST'])
 def log_put(logfile, size):
     agentip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
 
     agentdir = os.path.join(LOGHOME, agentip)
-    if not os.path.isdir(agentdir):
-        os.makedirs(agentdir)
+    logfile = os.path.join(agentip, logfile)
 
     fd = None
-    logfile = os.path.join(agentip, logfile)
     try:
+        if not os.path.isdir(agentdir):
+            os.makedirs(agentdir)
+
         fd = os.open(os.path.join(LOGHOME, logfile),
                      os.O_CREAT|os.O_WRONLY|os.O_APPEND)
         fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-    except:
+
+        if os.fstat(fd).st_size == int(size):
+            os.write(fd, flask.request.data)
+
+        result = dict(size=os.fstat(fd).st_size)
+    finally:
         os.close(fd)
-        throw(400, 'FILE LOCKED')
-
-    if os.fstat(fd).st_size == int(size):
-        os.write(fd, flask.request.data)
-
-    result = dict(size=os.fstat(fd).st_size)
-    os.close(fd)
 
     conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
     conn.execute("""create table if not exists offsets(thread text,
-        session integer, timestamp text, logfile text, offset integer,
-        primary key(thread, session))""")
+        session integer, timestamp text, logfile text,
+        begin integer, end integer, primary key(thread, session))""")
     conn.execute("create index if not exists timestamp on offsets(timestamp)")
     conn.execute("""create table if not exists files(logfile text,
         processed integer, primary key(logfile))""")
@@ -652,28 +651,30 @@ def log_put(logfile, size):
         conn.commit()
     conn.close()
 
-    file = open(os.path.join(LOGHOME, logfile), 'r')
-    file.seek(processed)
-    index_dict = dict()
-    for line in file:
-        m = regex.match(line)
-        if m:
-            key = (m.group(1), m.group(2))
-            if key not in index_dict:
-                index_dict[key] = (m.group(4), processed)
-        processed += len(line)
-    file.close()
-
-    data = [(k[0], k[1], v[0], logfile, v[1]) for k,v in index_dict.iteritems()]
+    with open(os.path.join(LOGHOME, logfile), 'r') as file:
+        file.seek(processed)
+        boffsets = dict()
+        eoffsets = dict()
+        for line in file:
+            m = regex.match(line)
+            if m:
+                key = (m.group(1), m.group(2))
+                if key not in boffsets:
+                    boffsets[key] = (m.group(4), processed)
+                eoffsets[key] = processed + len(line)
+            processed += len(line)
 
     conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
-    conn.executemany("insert or ignore into offsets values(?,?,?,?,?)", data)
-    conn.execute("update files set processed=? where logfile=?", (processed,
-                                                                  logfile))
+    conn.executemany("insert or ignore into offsets values(?,?,?,?,?,0)",
+        [(k[0], k[1], v[0], logfile, v[1]) for k,v in boffsets.iteritems()])
+    conn.executemany("update offsets set end=? where thread=? and session=?",
+        [(v, k[0], k[1]) for k,v in eoffsets.iteritems()])
+    conn.execute("update files set processed=? where logfile=?",
+                 (processed, logfile))
     conn.commit()
     conn.close()
 
-    return result
+    return json_response(result)
 
 
 @application.route('/logs', methods=['GET'])
@@ -697,57 +698,61 @@ def logs_get(thread=None, session=None):
                 '/logs/{0}'.format(r[0]), r[0], r[1])
             for r in result]))
     elif session is None:
-        result = conn.execute("""select session, offset, timestamp, logfile
-            from offsets where thread=? order by timestamp desc""",
-            (thread,)).fetchall()
+        result = conn.execute("""select session, timestamp from offsets
+            where thread=? order by timestamp desc""", (thread,)).fetchall()
         conn.close()
         response = html_table_response(''.join([
             '<tr><td><a href="{0}">{1}</a></td><td>{2}</td></tr>'.format(
-                '/logs/{0}/{1}'.format(thread, r[0]), r[0], r[2])
+                '/logs/{0}/{1}'.format(thread, r[0]), r[0], r[1])
                     for r in result]))
     else:
-        logfile, offset = conn.execute("""select logfile, offset from offsets
-            where thread=? and session=?""", (thread, session)).fetchone()
+        logfile, begin, end = conn.execute("""select logfile, begin, end
+            from offsets where thread=? and session=?""",
+            (thread, session)).fetchone()
         conn.close()
 
-        file = open(os.path.join(LOGHOME, logfile), 'r')
-        file.seek(offset)
+        with open(os.path.join(LOGHOME, logfile), 'r') as file:
+            file.seek(begin)
 
-        result = list()
-        blobs  = dict()
-        for line in file:
-            m = regex.match(line)
-            if m and (thread == m.group(1)) and (session == m.group(2)):
-                seq, timestamp, tag = m.group(3), m.group(4), m.group(5)
-                if 'BLOB' == tag:
-                    hdr = '[{0} {1} {2} {3} {4}]'.format(m.group(1),
-                        m.group(2), seq, timestamp, tag)
-                    blobs[hashlib.md5(hdr).hexdigest()] = offset
-                else:
-                    msg = m.group(6)
-                    for m in re.findall('<\w{32}>', msg):
-                        msg = msg.replace(m,
-                            '<a href="/blob/{0}/{1}">blob</a>'.format(
-                                logfile, blobs[m[1:33]]))
+            result = list()
+            blobs  = dict()
+            for line in file:
+                if begin > end:
+                    break
 
-                    result.append((timestamp, tag, msg))
-            offset += len(line)
+                m = regex.match(line)
+                if m and (thread == m.group(1)) and (session == m.group(2)):
+                    seq, timestamp, tag = m.group(3), m.group(4), m.group(5)
+                    if 'BLOB' == tag:
+                        hdr = '[{0} {1} {2} {3} {4}]'.format(m.group(1),
+                            m.group(2), seq, timestamp, tag)
+                        blobs[hashlib.md5(hdr).hexdigest()] = begin
+                    else:
+                        msg = m.group(6)
+                        for m in re.findall('<\w{32}>', msg):
+                            msg = msg.replace(m,
+                                '<a href="/blob/{0}/{1}">blob</a>'.format(
+                                    logfile, blobs[m[1:33]]))
 
-        response = html_table_response(''.join([
-            '<tr class="{0}"><td>{1}</td><td>{2}</td></tr>'.format(
-                r[1], r[0], r[2]) for r in result]))
+                        result.append((timestamp, tag, msg))
+                begin += len(line)
+
+            response = html_table_response(''.join([
+                '<tr class="{0}"><td>{1}</td><td>{2}</td></tr>'.format(
+                    r[1], r[0], r[2]) for r in result]))
     return response
 
 
 @application.route('/blob/<ip>/<logfile>/<offset>', methods=['GET'])
 def blob_get(ip, logfile, offset):
-    file = open(os.path.join(LOGHOME, ip, logfile))
-    file.seek(int(offset))
+    with open(os.path.join(LOGHOME, ip, logfile)) as file:
+        file.seek(int(offset))
 
-    m = regex.match(file.readline())
-    if m:
-        return flask.Response(base64.b64decode(m.group(6)),
-                             200, mimetype='text/plain')
+        m = regex.match(file.readline())
+        if m:
+            return flask.Response(base64.b64decode(m.group(6)),
+                                  200,
+                                  mimetype='text/plain')
 
     return flask.Response('NOT FOUND', 402, mimetype='text/plain')
 
