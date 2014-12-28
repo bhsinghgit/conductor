@@ -1,6 +1,5 @@
-#!/usr/bin/env python
-#* * * * * cd /tmp/test && \
-#    key=<agentkey> /tmp/test/bin/shepherd launcher <api-ip>:<api-port>
+#!/usr/bin/env shepherd
+#* * * * * cd /tmp/test && key=<agentkey> /tmp/test/bin/shepherd <ip>:<port>
 
 import os
 import re
@@ -16,56 +15,49 @@ import httplib
 import hashlib
 
 
-logger = None
-server = None
+class HTTP(object):
+    def __init__(self, server):
+        self.conn = httplib.HTTPConnection(server)
 
+    def client(self, method, resource, args=None):
+        start_time = time.time()
 
-def http(method, resource, args=None):
-    start_time = time.time()
-    headers = {
-        'X-SHEPHERD-APPID': os.environ.get('APPID'),
-        'X-SHEPHERD-APPKEY': os.environ.get('APPKEY'),
-        'X-SHEPHERD-AGENTKEY': os.environ.get('KEY')
-    }
+        request = status = reason = response = conn = None
+        try:
+            request = json.dumps(args, indent=4, sort_keys=True)
 
-    request  = None
-    status   = None
-    reason   = None
-    response = None
-    conn     = None
+            self.conn.request(method, resource, request, headers = {
+                'X-SHEPHERD-APPID': os.environ.get('APPID'),
+                'X-SHEPHERD-APPKEY': os.environ.get('APPKEY'),
+                'X-SHEPHERD-AGENTKEY': os.environ.get('KEY')})
 
-    try:
-        request = json.dumps(args, indent=4, sort_keys=True)
+            r = self.conn.getresponse()
 
-        conn = httplib.HTTPConnection(server)
-        conn.request(method, resource, request, headers)
+            status, reason, response = r.status, r.reason, r.read()
+        except Exception as e:
+            status, reason, response = 500, 'EXCEPTION', json.dumps(str(e))
 
-        handle   = conn.getresponse()
-        status   = handle.status
-        reason   = handle.reason
-        response = handle.read()
-    except Exception as e:
-        status   = 500
-        reason   = 'EXCEPTION'
-        response = json.dumps(str(e))
+        if 'logger' in globals():
+            logger.log('API', ('method({0}) resource({1}) status({2}) ' +
+                'msec({3}) request({4}) response({5})').format(
+                 method, resource, '{0} {1}'.format(status, reason),
+                 int((time.time()-start_time)*1000),
+                 len(request) if (200 == status) else logger.blob(request),
+                 len(response) if (200 == status) else logger.blob(response)))
 
-    if conn:
-        conn.close()
+        return status, reason, json.loads(response)
 
-    if logger:
-        logger.log('API', ('method({0}) resource({1}) status({2}) msec({3}) ' +
-                'request({4}) response({5})').format(
-                method, resource, '{0} {1}'.format(status, reason),
-                int((time.time()-start_time)*1000),
-                len(request), len(response)))
+    def get(self, resource, args=None):
+         return self.client('GET', resource, args)
 
-    return status, reason, json.loads(response)
+    def post(self, resource, args=None):
+        return self.client('POST', resource, args)
 
 
 class Logger(object):
     def __init__(self, thread, session=None):
         if not session:
-            session = os.environ['LOGSEQ']
+            session = os.environ['SESSION']
 
         self.sequence = 0
         self.session  = "[%s %s" % (thread, session)
@@ -75,19 +67,13 @@ class Logger(object):
 
         utc = time.time()
 
-        if message:
-            tag = msgORtag
-            msg = message
-        else:
-            tag = 'LOG'
-            msg = msgORtag
+        tag, msg = (msgORtag, message) if message else ('LOG', msgORtag)
             
         if ('BLOB' == tag) or (msg.find('\n') > -1):
             tag = 'BLOB'
             msg = base64.b64encode(msg)
 
-        hdr = '{0} {1} {2}.{3} {4}]'.format(
-            self.session, self.sequence,
+        hdr = '{0} {1} {2}.{3} {4}]'.format(self.session, self.sequence,
             time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
             '%06d' % (int((utc - int(utc)) * 1000000)), tag)
 
@@ -138,7 +124,7 @@ def worker(state, event):
         if len(result) < 2:
             raise Exception('invalid return value')
     except Exception as e:
-        logger.log('next -> current({0}) return({1}) exception({2})'.format(
+        logger.log('aborted -> current({0}) return({1}) exception({2})'.format(
                 current_state, result[0], str(e)))
         return dict(status=str(e))
 
@@ -184,42 +170,21 @@ def worker(state, event):
     return commit_dict
 
 
-def init(role):
-    global server
-    ymdH = (time.time()//(6*3600))*6*3600
-    logseq = int(time.strftime('%y%m%d%H',time.gmtime( ymdH)))
+if len(sys.argv) > 1:
+    logseq = time.strftime('%y%m%d',time.gmtime())
 
     os.dup2(os.open('/dev/null', os.O_RDONLY), 0)
-    os.dup2(os.open('err.%d' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 1)
-    os.dup2(os.open('log.%d' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 3)
+    os.dup2(os.open('err.%s' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 1)
+    os.dup2(os.open('log.%s' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 3)
     os.dup2(1, 2)
 
-    server = sys.argv[2]
-    status, reason, config = http('GET', '/config')
+    status, reason, config = HTTP(sys.argv[1]).get('/config')
+
     os.environ['MYIP'] = config['agentip']
-    os.environ['LOGSEQ'] = str(logseq)
+    os.environ['SESSION'] = time.strftime('%y%m%d%H',time.gmtime())
+    os.environ['TASK_SERVER'] = config['task_server']
 
-    return config, Logger('{0}.{1}'.format(role, config['agentip']), logseq)
-
-if 'launcher' == sys.argv[1]:
-    config, logger = init('launcher')
-
-    server = config['read_server']
-    os.environ['WRITE_SERVER'] = config['write_server']
-
-    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
-
-    ymdH = ((time.time()-6*3600)//(6*3600))*6*3600
-    oldseq = int(time.strftime('%y%m%d%H', time.gmtime(ymdH)))
-    for path in os.listdir('.'):
-        match = re.search('(err|log)\.(\d{8})', path)
-        if match:
-            if int(match.group(2)) < oldseq:
-                os.remove(path)
-                logger.log('removed {0}'.format(path))
-            elif match.group(1) == 'log':
-                os.system('{0} shipper {1} {2} &'.format(
-                    sys.argv[0], sys.argv[2], match.group(0)))
+    logger = Logger('{0}.{1}'.format('shepherd', config['agentip']))
 
     if not os.path.isdir('apps'):
         os.mkdir('apps')
@@ -228,108 +193,118 @@ if 'launcher' == sys.argv[1]:
         lockfd = os.open('apps', os.O_RDONLY)
         fcntl.flock(lockfd, fcntl.LOCK_EX|fcntl.LOCK_NB)
     except:
-        logger.log('could not acquire lock. launcher is already running')
+        logger.log('could not acquire lock. shepherd is already running')
         exit()
+
+    oldseq = int(time.strftime('%y%m%d', time.gmtime(time.time()-86400)))
+    logfiles = dict()
+    for path in os.listdir('.'):
+        match = re.search('(err|log)\.(\d{6})', path)
+        if match:
+            if ('err' == match.group(1)) and (int(match.group(2)) < oldseq):
+                os.remove(path)
+                logger.log('removed {0}'.format(path))
+            elif 'log' == match.group(1):
+                logfiles[match.group(2)] = dict(
+                    offset=0, size=0, fd=os.open(match.group(0), os.O_RDONLY))
+                logger.log('tracking logfile({0})'.format(match.group(2)))
+
+    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
     timeout = time.time() + 300
     while time.time() < timeout:
-        time.sleep(random.randint(5, 15))
-
         myip = config['agentip']
-        status, reason, pending = http('GET', '/pending')
-        if (200 != status) or (myip not in pending['allocation']):
-            continue
-        
-        proc_count = dict()
-        for d in [d for d in os.listdir('/proc') if d.isdigit()]:
-            try:
-                uid = os.stat('/proc/{0}'.format(d)).st_uid
-            except OSError:
-                pass
+        status, reason, pending = HTTP(config['task_server']).get('/pending')
+        if (200 == status) and (myip in pending['allocation']):
+            proc_count = dict()
+            for d in [d for d in os.listdir('/proc') if d.isdigit()]:
+                try:
+                    uid = os.stat('/proc/{0}'.format(d)).st_uid
+                except OSError:
+                    pass
 
-            proc_count.setdefault(uid, 0)
-            proc_count[uid] += 1
+                proc_count.setdefault(uid, 0)
+                proc_count[uid] += 1
 
-        nobody_gid = pwd.getpwnam('nobody').pw_gid
-        for uid, async_count in pending['allocation'][myip].iteritems():
-            app = pending['applications'][uid]
+            nobody_gid = pwd.getpwnam('nobody').pw_gid
+            for uid, async_count in pending['allocation'][myip].iteritems():
+                app = pending['applications'][uid]
 
-            if app['username']:
-                uid = pwd.getpwnam(app['username']).pw_uid
-            else:
-                uid = int(uid)
-
-            os.environ['APPKEY'] = app['appkey']
-            os.environ['APPID'] = str(app['appid'])
-
-            if app['syspath']:
-                os.environ['SYSPATH'] = app['syspath']
-
-            app_dir = os.path.join('apps', str(uid))
-            if not os.path.isdir(app_dir):
-                os.mkdir(app_dir, 0700)
-                os.chown(app_dir, uid, nobody_gid)
-
-            count = 0
-            for i in range(async_count - proc_count.get(uid, 0)):
-                if 0 == os.fork():
-                    os.close(lockfd)
-
-                    os.chdir(app_dir)
-                    os.setsid()
-                    os.setgid(nobody_gid)
-                    os.setuid(uid)
-
-                    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-
-                    os.execv(app['python'],
-                             [app['python'], sys.argv[0], 'worker'])
+                if app['username']:
+                    uid = pwd.getpwnam(app['username']).pw_uid
                 else:
-                    count += 1
-            logger.log('spawned count({0}) for uid({1})'.format(count, uid))
+                    uid = int(uid)
+
+                os.environ['APPKEY'] = app['appkey']
+                os.environ['APPID'] = str(app['appid'])
+
+                if app['syspath']:
+                    os.environ['SYSPATH'] = app['syspath']
+
+                app_dir = os.path.join('apps', str(uid))
+                if not os.path.isdir(app_dir):
+                    os.mkdir(app_dir, 0700)
+                    os.chown(app_dir, uid, nobody_gid)
+
+                count = 0
+                for i in range(async_count - proc_count.get(uid, 0)):
+                    if 0 == os.fork():
+                        os.close(lockfd)
+    
+                        os.chdir(app_dir)
+                        os.setsid()
+                        os.setgid(nobody_gid)
+                        os.setuid(uid)
+
+                        signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+
+                        os.execv(app['python'], [app['python'], sys.argv[0]])
+                    else:
+                        count += 1
+                if count > 0:
+                    logger.log('spawned count({0}) workers for uid({1})'.format(
+                            count, uid))
+
+        conn = httplib.HTTPConnection(config['log_server'])
+        shipping_time = time.time() + random.randint(5, 15)
+        while time.time() < shipping_time:
+            sleep = 0
+            for ymd, file in logfiles.iteritems():
+                offset, size, fd = file['offset'], file['size'], file['fd']
+
+                assert(offset <= os.fstat(fd).st_size)
+
+                if offset < os.fstat(fd).st_size:
+                    os.lseek(fd, offset, os.SEEK_SET)
+
+                    conn.request('POST',
+                                 '/log/log.{0}/{1}'.format(ymd, offset),
+                                 os.read(fd, size) if size else '')
+
+                    handle = conn.getresponse()
+
+                    if 200 == handle.status:
+                        file['offset'] = json.loads(handle.read())['size']
+                        file['size'] = 10*1024*1024
+                    else:
+                        file['size'] = 0
+                        sleep = True
+                else:
+                    yesterday = time.gmtime(time.time()-86400)
+                    if ymd < time.strftime('%y%m%d', yesterday):
+                        os.remove('log.{0}'.format(ymd))
+                        logger.log('removed logfile({0})'.format(ymd))
+                    else:
+                        sleep += 1
+            if len(logfiles) == sleep:
+                time.sleep(1)
 
     time.sleep(1)
     os.close(lockfd)
     os.system(' '.join(sys.argv) + '&')
-elif 'shipper' == sys.argv[1]:
-    config, logger = init('shipper')
-
-    try:
-        fd = os.open(sys.argv[3], os.O_RDONLY)
-        fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-    except:
-        logger.log('could not access {0}'.format(sys.argv[3]))
-        exit(0)
-
-    conn = httplib.HTTPConnection(config['log_server'])
-
-    offset, size = 0, 0
-    timeout = time.time() + 300
-    while time.time() < timeout:
-        if offset < os.fstat(fd).st_size:
-            os.lseek(fd, offset, os.SEEK_SET)
-
-            conn.request('POST',
-                         '/log/{0}/{1}'.format(sys.argv[3], offset),
-                         os.read(fd, size) if size else '')
-
-            handle = conn.getresponse()
-
-            if 200 == handle.status:
-                offset, size = json.loads(handle.read())['size'], 10*1024*1024
-            else:
-                size = 0
-                time.sleep(random.randint(5, 15))
-        else:
-            time.sleep(1)
-
-    time.sleep(1)
-    os.close(fd)
-    os.system(' '.join(sys.argv) + '&')
-elif 'worker' == sys.argv[1]:
+else:
     appdir = os.getcwd()
     logger = Logger('worker.{0}'.format(os.environ['MYIP']))
-    server = os.environ['WRITE_SERVER']
 
     if 'SYSPATH' in os.environ:
         sys.path.append(os.environ['SYSPATH'])
@@ -340,10 +315,11 @@ elif 'worker' == sys.argv[1]:
         worker_module = sys.modules['__main__']
 
     timeout = time.time() + 300
+    http = HTTP(os.environ['TASK_SERVER'])
     while time.time() < timeout:
         os.chdir(appdir)
 
-        status, reason, msg = http('POST', '/lockmessage')
+        status, reason, msg = http.post('/lockmessage')
         if (200 != status) or ('NOT_FOUND' == msg):
             break
 
@@ -366,7 +342,7 @@ elif 'worker' == sys.argv[1]:
         result['workerid'] = msg['workerid']
 
         while True:
-            status, reason, msg = http('POST', '/commit', result)
+            status, reason, msg = http.post('/commit', result)
             if status < 500:
                 break
             time.sleep(random.randint(5, 15))
