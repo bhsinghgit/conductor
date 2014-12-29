@@ -1,4 +1,4 @@
-#!/usr/bin/env shepherd
+#!/usr/bin/env python
 #* * * * * cd /tmp/test && key=<agentkey> /tmp/test/bin/shepherd <ip>:<port>
 
 import os
@@ -17,7 +17,7 @@ import hashlib
 
 class HTTP(object):
     def __init__(self, server):
-        self.conn = httplib.HTTPConnection(server)
+        self.server = server
 
     def client(self, method, resource, args=None):
         start_time = time.time()
@@ -26,16 +26,20 @@ class HTTP(object):
         try:
             request = json.dumps(args, indent=4, sort_keys=True)
 
-            self.conn.request(method, resource, request, headers = {
+            conn = httplib.HTTPConnection(self.server)
+            conn.request(method, resource, request, headers = {
                 'X-SHEPHERD-APPID': os.environ.get('APPID'),
                 'X-SHEPHERD-APPKEY': os.environ.get('APPKEY'),
                 'X-SHEPHERD-AGENTKEY': os.environ.get('KEY')})
 
-            r = self.conn.getresponse()
+            r = conn.getresponse()
 
             status, reason, response = r.status, r.reason, r.read()
         except Exception as e:
             status, reason, response = 500, 'EXCEPTION', json.dumps(str(e))
+        finally:
+            if conn:
+                conn.close()
 
         if 'logger' in globals():
             logger.log('API', ('method({0}) resource({1}) status({2}) ' +
@@ -171,7 +175,7 @@ def worker(state, event):
 
 
 if len(sys.argv) > 1:
-    logseq = time.strftime('%y%m%d',time.gmtime())
+    logseq = time.strftime('%y%m%d%H',time.gmtime())
 
     os.dup2(os.open('/dev/null', os.O_RDONLY), 0)
     os.dup2(os.open('err.%s' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 1)
@@ -186,20 +190,20 @@ if len(sys.argv) > 1:
 
     logger = Logger('{0}.{1}'.format('shepherd', config['agentip']))
 
-    if not os.path.isdir('apps'):
-        os.mkdir('apps')
-
     try:
+        if not os.path.isdir('apps'):
+            os.mkdir('apps')
+
         lockfd = os.open('apps', os.O_RDONLY)
         fcntl.flock(lockfd, fcntl.LOCK_EX|fcntl.LOCK_NB)
-    except:
-        logger.log('could not acquire lock. shepherd is already running')
+    except Exception as e:
+        logger.log('could not acquire lock. exception({0})'.format(str(e)))
         exit()
 
-    oldseq = int(time.strftime('%y%m%d', time.gmtime(time.time()-86400)))
+    oldseq = int(time.strftime('%y%m%d%H', time.gmtime(time.time()-86400)))
     logfiles = dict()
     for path in os.listdir('.'):
-        match = re.search('(err|log)\.(\d{6})', path)
+        match = re.search('(err|log)\.(\d{8})', path)
         if match:
             if ('err' == match.group(1)) and (int(match.group(2)) < oldseq):
                 os.remove(path)
@@ -249,7 +253,7 @@ if len(sys.argv) > 1:
                 count = 0
                 for i in range(async_count - proc_count.get(uid, 0)):
                     if 0 == os.fork():
-                        os.close(lockfd)
+                        os.closerange(4, 100)
     
                         os.chdir(app_dir)
                         os.setsid()
@@ -291,7 +295,7 @@ if len(sys.argv) > 1:
                         sleep = True
                 else:
                     yesterday = time.gmtime(time.time()-86400)
-                    if ymd < time.strftime('%y%m%d', yesterday):
+                    if ymd < time.strftime('%y%m%d%H', yesterday):
                         os.remove('log.{0}'.format(ymd))
                         logger.log('removed logfile({0})'.format(ymd))
                     else:
@@ -300,7 +304,7 @@ if len(sys.argv) > 1:
                 time.sleep(1)
 
     time.sleep(1)
-    os.close(lockfd)
+    os.closerange(4, 100)
     os.system(' '.join(sys.argv) + '&')
 else:
     appdir = os.getcwd()
