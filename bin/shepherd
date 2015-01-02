@@ -175,7 +175,7 @@ def worker(state, event):
 
 
 if len(sys.argv) > 1:
-    logseq = time.strftime('%y%m%d%H',time.gmtime())
+    logseq = time.strftime('%y%m%d', time.gmtime())
 
     os.dup2(os.open('/dev/null', os.O_RDONLY), 0)
     os.dup2(os.open('err.%s' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 1)
@@ -203,7 +203,7 @@ if len(sys.argv) > 1:
     oldseq = int(time.strftime('%y%m%d%H', time.gmtime(time.time()-86400)))
     logfiles = dict()
     for path in os.listdir('.'):
-        match = re.search('(err|log)\.(\d{8})', path)
+        match = re.search('(err|log)\.(\d{6})', path)
         if match:
             if ('err' == match.group(1)) and (int(match.group(2)) < oldseq):
                 os.remove(path)
@@ -253,7 +253,7 @@ if len(sys.argv) > 1:
                 count = 0
                 for i in range(async_count - proc_count.get(uid, 0)):
                     if 0 == os.fork():
-                        os.closerange(4, 100)
+                        os.closerange(4, 1000)
     
                         os.chdir(app_dir)
                         os.setsid()
@@ -295,7 +295,7 @@ if len(sys.argv) > 1:
                         sleep = True
                 else:
                     yesterday = time.gmtime(time.time()-86400)
-                    if ymd < time.strftime('%y%m%d%H', yesterday):
+                    if ymd < time.strftime('%y%m%d', yesterday):
                         os.remove('log.{0}'.format(ymd))
                         logger.log('removed logfile({0})'.format(ymd))
                     else:
@@ -304,7 +304,7 @@ if len(sys.argv) > 1:
                 time.sleep(1)
 
     time.sleep(1)
-    os.closerange(4, 100)
+    os.closerange(4, 1000)
     os.system(' '.join(sys.argv) + '&')
 else:
     appdir = os.getcwd()

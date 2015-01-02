@@ -134,9 +134,16 @@ insert into agentkeys values
 
 application = flask.Flask(__name__)
 
-db_conn = pymysql.connect('127.0.0.1', 'root', '', 'shepherd')
-db_cursor = db_conn.cursor()
+db_conn = None
+db_cursor = None
 
+def getenv(key, default=None):
+    value = flask.request.environ.get(key)
+    if not value:
+        value =  os.environ.get(key)
+    if not value:
+        value = default
+    return value
 
 class CustomException():
     def __init__(self, status, response):
@@ -170,10 +177,16 @@ def transaction(*args, **kwargs):
         @application.route(*args, **kwargs)
         @functools.wraps(f)
         def f1(*args, **kwargs):
+            global db_conn
             global db_cursor
+
             msec = time.time() * 1000
 
-            db_cursor.close()
+            if not db_conn:
+                db_conn = pymysql.connect(getenv('MYSQL_HOST'),
+                                          getenv('MYSQL_USER'),
+                                          getenv('MYSQL_PASSWORD', ''),
+                                          'shepherd')
             db_cursor = db_conn.cursor(pymysql.cursors.DictCursor)
 
             try:
@@ -185,6 +198,7 @@ def transaction(*args, **kwargs):
                 status = e.status
                 response = e.response
 
+            db_cursor.close()
             return json_response(response, status)
         return f1
     return fun
@@ -608,23 +622,21 @@ def lockmessage_post():
 
     return "NOT_FOUND"
 
-LOGHOME = '/var/shepherd'
 regex = re.compile('^\[(.+?) (\d+) (\d+) (\d{6}\.\d{6}\.\d{6}) (.+?)\] : ')
 
 @application.route('/log/<logfile>/<size>', methods=['POST'])
 def log_put(logfile, size):
     agentip = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
+    os.chdir(getenv('LOGDIR'))
 
-    agentdir = os.path.join(LOGHOME, agentip)
     logfile = os.path.join(agentip, logfile)
 
     fd = None
     try:
-        if not os.path.isdir(agentdir):
-            os.makedirs(agentdir)
+        if not os.path.isdir(agentip):
+            os.makedirs(agentip)
 
-        fd = os.open(os.path.join(LOGHOME, logfile),
-                     os.O_CREAT|os.O_WRONLY|os.O_APPEND)
+        fd = os.open(logfile, os.O_CREAT|os.O_WRONLY|os.O_APPEND)
         fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
 
         if os.fstat(fd).st_size == int(size):
@@ -634,7 +646,7 @@ def log_put(logfile, size):
     finally:
         os.close(fd)
 
-    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    conn = sqlite3.connect('index.db')
     conn.execute("""create table if not exists offsets(thread text,
         session integer, timestamp text, logfile text,
         begin integer, end integer, primary key(thread, session))""")
@@ -651,7 +663,7 @@ def log_put(logfile, size):
         conn.commit()
     conn.close()
 
-    with open(os.path.join(LOGHOME, logfile), 'r') as file:
+    with open(logfile, 'r') as file:
         file.seek(processed)
         boffsets = dict()
         eoffsets = dict()
@@ -664,7 +676,7 @@ def log_put(logfile, size):
                 eoffsets[key] = processed + len(line)
             processed += len(line)
 
-    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    conn = sqlite3.connect('index.db')
     conn.executemany("insert or ignore into offsets values(?,?,?,?,?,0)",
         [(k[0], k[1], v[0], logfile, v[1]) for k,v in boffsets.iteritems()])
     conn.executemany("update offsets set end=? where thread=? and session=?",
@@ -681,11 +693,13 @@ def log_put(logfile, size):
 @application.route('/logs/<thread>', methods=['GET'])
 @application.route('/logs/<thread>/<session>', methods=['GET'])
 def logs_get(thread=None, session=None):
+    os.chdir(getenv('LOGDIR'))
+
     begin = flask.request.args.get('begin', '0')
     end   = flask.request.args.get('end',   '9')
     limit = flask.request.args.get('limit', 25)
 
-    conn = sqlite3.connect(os.path.join(LOGHOME, 'index.db'))
+    conn = sqlite3.connect('index.db')
 
     if (thread is None) and (session is None):
         result = conn.execute("""select thread, max(timestamp) from offsets
@@ -725,7 +739,7 @@ def logs_get(thread=None, session=None):
         for s in sorted(sdict.keys()):
             logfile, begin, end = sdict[s]
 
-            with open(os.path.join(LOGHOME, logfile), 'r') as file:
+            with open(logfile, 'r') as file:
                 file.seek(begin)
 
                 blobs  = dict()
@@ -758,7 +772,9 @@ def logs_get(thread=None, session=None):
 
 @application.route('/blob/<ip>/<logfile>/<offset>', methods=['GET'])
 def blob_get(ip, logfile, offset):
-    with open(os.path.join(LOGHOME, ip, logfile)) as file:
+    os.chdir(getenv('LOGDIR'))
+
+    with open(os.path.join(ip, logfile)) as file:
         file.seek(int(offset))
 
         line = file.readline()
