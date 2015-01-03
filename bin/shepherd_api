@@ -365,22 +365,29 @@ def worker_put(appname, workername):
     return dict(workername=workername)
 
 
-@transaction('/workers/<appname>/<workerid>', methods=['GET'])
-def get_worker_status(appname, workerid):
+@transaction('/workers/<appname>/<workerids>', methods=['GET'])
+def workers_get(appname, workerids):
     req = validate_request(appname)
 
-    if not workerid.isdigit():
-        workerid = query("""select workerid from workernames
-                            where appid=%s and workername=%s
-                         """, (req['appid'], workerid))[0]['workerid']
+    result = dict()
+    for w in workerids.split(','):
+        if not w.isdigit():
+            wid = query("""select workerid from workernames
+                           where appid=%s and workername=%s
+                        """, (req['appid'], w))[0]['workerid']
+        else:
+            wid = w
 
-    rows = query("select status from workers where workerid=%s and appid=%s",
-                 (workerid, req['appid']))
+        rows = query("""select state, status, session from workers
+                        where workerid=%s and appid=%s
+                     """, (wid, req['appid']))
 
-    if 1 != len(rows):
-        throw(404, 'WORKER_NOT_FOUND')
+        if 1 == len(rows):
+            result[w] = dict(state=rows[0]['state'],
+                             status=rows[0]['status'],
+                             session=rows[0]['session'])
 
-    return json.loads(rows[0]['status'])
+    return result
 
 
 def mark_head(appid, workerid):

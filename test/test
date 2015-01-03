@@ -53,15 +53,15 @@ while True:
     status, reason, result = http_client('GET',
                                          '/workers/%s/sheepdog' % (appname))
 
-    if (status != 200) or ('NOT_FOUND' == result):
+    if status != 200:
         continue
 
-    print(result)
+    print(result['sheepdog'])
 
     if 'SLEEPING_FOR_SIGNAL_5' == result:
         http_client('POST',
                     '/messages/{0}/sheepdog'.format(appname),
                     dict(code='report'))
 
-    if result in ['PASS', 'FAIL']:
+    if result['sheepdog']['status'] in ['PASS', 'FAIL']:
         break
