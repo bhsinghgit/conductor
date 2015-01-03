@@ -384,7 +384,7 @@ def workers_get(appname, workerids):
 
         if 1 == len(rows):
             result[w] = dict(state=rows[0]['state'],
-                             status=rows[0]['status'],
+                             status=json.loads(rows[0]['status']),
                              session=rows[0]['session'])
 
     return result

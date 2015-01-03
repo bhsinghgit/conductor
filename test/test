@@ -58,7 +58,7 @@ while True:
 
     print(result['sheepdog'])
 
-    if 'SLEEPING_FOR_SIGNAL_5' == result:
+    if 'SLEEPING_FOR_SIGNAL_5' == result['sheepdog']['status']:
         http_client('POST',
                     '/messages/{0}/sheepdog'.format(appname),
                     dict(code='report'))
