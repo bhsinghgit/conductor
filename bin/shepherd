@@ -71,7 +71,10 @@ class Logger(object):
 
         utc = time.time()
 
-        tag, msg = (msgORtag, message) if message else ('LOG', msgORtag)
+        if message is None:
+            tag, msg = 'LOG', msgORtag
+        else:
+            tag, msg = msgORtag, message
             
         if ('BLOB' == tag) or (msg.find('\n') > -1):
             tag = 'BLOB'
@@ -105,7 +108,7 @@ def worker(state, event):
 
     try:
         result = (None,)
-        module = __import__(workflow)
+        module = __import__(workflow, fromlist=workflow.split('.')[:-1])
         module.logger = logger
 
         if event['code'] in ['alarm', 'init', 'locked']:

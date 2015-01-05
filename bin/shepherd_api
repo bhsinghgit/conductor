@@ -751,7 +751,7 @@ def logs_get(thread=None, session=None):
                         for m in re.findall('<\w{32}>', msg):
                             msg = msg.replace(m,
                                 '<a href="/blob/{0}/{1}">blob</a>'.format(
-                                    logfile, blobs[m[1:33]]))
+                                    logfile, blobs.get(m[1:33])))
 
                         tag = tag.replace(',', ' ') + ' SESSION-' + str(s)
                         result.append((timestamp, tag, msg))
