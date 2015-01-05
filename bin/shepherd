@@ -113,7 +113,7 @@ def worker(state, event):
         else:
             method_name = 'handler'
 
-        logger.log('method({0}) input({1}) state({2}) event({3})'.format(
+        logger.log('session begin({0}) input({1}) state({2}) event({3})'.format(
             method_name,
             logger.blob(json.dumps(input, indent=4, sort_keys=True)),
             logger.blob(json.dumps(continuation, indent=4, sort_keys=True)),
@@ -128,13 +128,12 @@ def worker(state, event):
         if len(result) < 2:
             raise Exception('invalid return value')
     except Exception as e:
-        logger.log('aborted -> current({0}) return({1}) exception({2})'.format(
-                current_state, result[0], str(e)))
+        logger.log('workflow aborted return({0}) exception({1})'.format(
+                result[0], str(e)))
         return dict(status=str(e))
 
     if 2 == len(result):
-        logger.log('completed -> method({0}) return({1})'.format(
-                current_state, result[0]))
+        logger.log('workflow completed return({0})'.format(result[0]))
         return dict(status=result[1])
 
     next_state = None
@@ -163,7 +162,7 @@ def worker(state, event):
     if  result[0] in ['sleep', 'alarm', 'retry']:
         commit_dict['alarm'] = result[3]
 
-    logger.log('next -> method({0}) return({1}) next({2})'.format(
+    logger.log('session end({0}) return({1}) next({2})'.format(
             method_name, result[0], next_state))
     return commit_dict
 
@@ -302,7 +301,7 @@ if len(sys.argv) > 1:
     os.system(' '.join(sys.argv) + '&')
 else:
     appdir = os.getcwd()
-    logger = Logger('worker.{0}'.format(os.environ['MYIP']))
+    common_logger = Logger('worker.{0}'.format(os.environ['MYIP']))
 
     if 'SYSPATH' in os.environ:
         sys.path.append(os.environ['SYSPATH'])
@@ -315,19 +314,20 @@ else:
     timeout = time.time() + 300
     http = HTTP(os.environ['TASK_SERVER'])
     while time.time() < timeout:
+        logger = common_logger
         os.chdir(appdir)
 
         status, reason, msg = http.post('/lockmessage')
         if (200 != status) or ('NOT_FOUND' == msg):
             break
 
-        worker_module.logger = Logger(str(msg['workerid']), msg['session'])
-
         event = dict(code=msg['code'])
         if 'data' in msg:
             event['data'] = msg['data']
 
+        worker_module.logger = Logger(str(msg['workerid']), msg['session'])
         result = worker_module.worker(msg['continuation'], event)
+        logger = common_logger
 
         if result is None:
             result = dict(status='WORKER_CRASHED')

@@ -56,7 +56,7 @@ while True:
     if status != 200:
         continue
 
-    print(result['sheepdog'])
+    print(result['sheepdog']['status'])
 
     if 'SLEEPING_FOR_SIGNAL_5' == result['sheepdog']['status']:
         http_client('POST',

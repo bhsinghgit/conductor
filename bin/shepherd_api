@@ -102,40 +102,13 @@ create table agentkeys(
     ip  char(15) primary key,
     agentkey char(32)
 ) engine=innodb;
-
-insert into apps values
-    (100001, 'testkey1', 'active','/tmp/abcd/bin/python', null,             null,       null),
-    (100002, 'testkey2', 'active','/tmp/abcd/bin/python', null,             'testapp2', null),
-    (100003, 'testkey3', 'active','/usr/bin/python',      '/tmp/sheeptest',  null,      null),
-    (100004, 'testkey4', 'active','/usr/bin/python',      '/tmp/sheeptest', 'testapp4', null);
-
-insert into appnames values
-    ('testapp1',   100001),
-    ('testapp2',   100002),
-    ('testapp3',   100003),
-    ('testapp4',   100004);
-
-insert into hosts values
-    (100001, '172.21.205.32', 100, 0),
-    (100002, '172.21.205.32', 100, 0),
-    (100003, '172.21.205.32', 100, 0),
-    (100004, '172.21.205.32', 100, 0);
-
-insert into pools values
-    (100001, 'centralbox', '172.21.205.32'),
-    (100002, 'centralbox', '172.21.205.32'),
-    (100003, 'centralbox', '172.21.205.32'),
-    (100004, 'centralbox', '172.21.205.32');
-
-insert into agentkeys values
-    ('172.21.205.32', 'somekey');
 """
-
 
 application = flask.Flask(__name__)
 
 db_conn = None
 db_cursor = None
+
 
 def getenv(key, default=None):
     value = flask.request.environ.get(key)
@@ -144,6 +117,7 @@ def getenv(key, default=None):
     if not value:
         value = default
     return value
+
 
 class CustomException():
     def __init__(self, status, response):
@@ -369,6 +343,9 @@ def worker_put(appname, workername):
 def workers_get(appname, workerids):
     req = validate_request(appname)
 
+    log_server = query("select value from config where name='log_server'")
+    log_server = log_server[0]['value']
+
     result = dict()
     for w in workerids.split(','):
         if not w.isdigit():
@@ -385,7 +362,8 @@ def workers_get(appname, workerids):
         if 1 == len(rows):
             result[w] = dict(state=rows[0]['state'],
                              status=json.loads(rows[0]['status']),
-                             session=rows[0]['session'])
+                             session=rows[0]['session'],
+                             logs='http://{0}/logs/{1}'.format(log_server, wid))
 
     return result
 
@@ -445,6 +423,7 @@ def add_msg(appname, workerid):
     mark_head(appid, workerid)
 
     return "OK"
+
 
 @transaction('/commit', methods=['POST'])
 def commit():
@@ -583,6 +562,7 @@ def commit():
 
     return "OK"
 
+
 @transaction('/lockmessage', methods=['POST'])
 def lockmessage_post():
     sql1 = """select msgid, workerid, code, data from messages
@@ -698,6 +678,7 @@ def log_put(logfile, size):
 
 @application.route('/logs', methods=['GET'])
 @application.route('/logs/<thread>', methods=['GET'])
+@application.route('/logs/<thread>/sessions', methods=['GET'])
 @application.route('/logs/<thread>/<session>', methods=['GET'])
 def logs_get(thread=None, session=None):
     os.chdir(getenv('LOGDIR'))
@@ -708,73 +689,77 @@ def logs_get(thread=None, session=None):
 
     conn = sqlite3.connect('index.db')
 
-    if (thread is None) and (session is None):
-        result = conn.execute("""select thread, max(timestamp) from offsets
-            where timestamp > ? and timestamp < ?
+    if flask.request.path.startswith('/logs') and (thread is None):
+        result = conn.execute("""select thread, max(timestamp), count(session)
+            from offsets where timestamp > ? and timestamp < ?
             group by thread order by timestamp desc
             limit ?""", (begin, end, limit)).fetchall()
         conn.close()
-        response = html_table_response(''.join([
-            '<tr><td><a href="{0}">{1}</a></td><td>{2}</tr>'.format(
-                '/logs/{0}'.format(r[0]), r[0], r[1])
-            for r in result]))
-    elif session is None:
+
+        return html_table_response(''.join(['''<tr>
+            <td><a href="{0}">{1}</a></td>
+            <td><a href="{2}">{3} sessions</a></td>
+            <td>{4}</td>
+            </tr>'''.format('/logs/{0}'.format(r[0]), r[0],
+                            '/logs/{0}/sessions'.format(r[0]), r[2],
+                            r[1]) for r in result]))
+    elif flask.request.path.endswith('/sessions'):
         result = conn.execute("""select session, timestamp from offsets
             where thread=? order by timestamp desc""", (thread,)).fetchall()
         conn.close()
-        response = html_table_response(''.join([
+        return html_table_response(''.join([
             '<tr><td><a href="{0}">{1}</a></td><td>{2}</td></tr>'.format(
                 '/logs/{0}/{1}'.format(thread, r[0]), r[0], r[1])
                     for r in result]))
+
+    rows = conn.execute("""select session, logfile, begin, end
+        from offsets where thread=?""", (thread,)).fetchall()
+    conn.close()
+
+    if session:
+        sset = set()
+        for l in [r.split('-') for r in session.split(',')]:
+            r = (l[0], l[1]) if (len(l) > 1) else (l[0], l[0])
+            for n in range(int(r[0]), int(r[1])+1):
+                sset.add(n)
+        sdict = dict([(r[0], (r[1], r[2], r[3]))
+                     for r in rows if r[0] in sset])
     else:
-        rows = conn.execute("""select session, logfile, begin, end
-            from offsets where thread=?""", (thread,)).fetchall()
-        conn.close()
+        sdict = dict([(r[0], (r[1], r[2], r[3])) for r in rows])
 
-        if 'all' != session:
-            sset = set()
-            for l in [r.split('-') for r in session.split(',')]:
-                r = (l[0], l[1]) if (len(l) > 1) else (l[0], l[0])
-                for n in range(int(r[0]), int(r[1])+1):
-                    sset.add(n)
-            sdict = dict([(r[0], (r[1], r[2], r[3]))
-                         for r in rows if r[0] in sset])
-        else:
-            sdict = dict([(r[0], (r[1], r[2], r[3])) for r in rows])
+    result = list()
+    for s in sorted(sdict.keys()):
+        logfile, begin, end = sdict[s]
 
-        result = list()
-        for s in sorted(sdict.keys()):
-            logfile, begin, end = sdict[s]
+        with open(logfile, 'r') as file:
+            file.seek(begin)
 
-            with open(logfile, 'r') as file:
-                file.seek(begin)
+            blobs  = dict()
+            for line in file:
+                if begin > end:
+                    break
 
-                blobs  = dict()
-                for line in file:
-                    if begin > end:
-                        break
+                m = regex.match(line)
+                if m and (thread == m.group(1)) and (str(s) == m.group(2)):
+                    seq, timestamp, tag = m.group(3), m.group(4), m.group(5)
+                    if 'BLOB' == tag:
+                        hdr = '[{0} {1} {2} {3} {4}]'.format(m.group(1),
+                            m.group(2), seq, timestamp, tag)
+                        blobs[hashlib.md5(hdr).hexdigest()] = begin
+                    else:
+                        msg = line[len(m.group(0)):]
+                        for m in re.findall('<\w{32}>', msg):
+                            msg = msg.replace(m,
+                                '<a href="/blob/{0}/{1}">blob</a>'.format(
+                                    logfile, blobs[m[1:33]]))
 
-                    m = regex.match(line)
-                    if m and (thread == m.group(1)) and (str(s) == m.group(2)):
-                        seq, timestamp, tag = m.group(3), m.group(4), m.group(5)
-                        if 'BLOB' == tag:
-                            hdr = '[{0} {1} {2} {3} {4}]'.format(m.group(1),
-                                m.group(2), seq, timestamp, tag)
-                            blobs[hashlib.md5(hdr).hexdigest()] = begin
-                        else:
-                            msg = line[len(m.group(0)):]
-                            for m in re.findall('<\w{32}>', msg):
-                                msg = msg.replace(m,
-                                    '<a href="/blob/{0}/{1}">blob</a>'.format(
-                                        logfile, blobs[m[1:33]]))
+                        tag = tag.replace(',', ' ') + ' SESSION-' + str(s)
+                        result.append((timestamp, tag, msg))
+                begin += len(line)
 
-                            result.append((timestamp, tag, msg))
-                    begin += len(line)
-
-        response = html_table_response(''.join([
+    return html_table_response(''.join([
             '<tr class="{0}"><td>{1}</td><td>{2}</td></tr>'.format(
                 r[1], r[0], r[2]) for r in result]))
-    return response
 
 
 @application.route('/blob/<ip>/<logfile>/<offset>', methods=['GET'])
@@ -794,5 +779,4 @@ def blob_get(ip, logfile, offset):
 
 
 if __name__ == '__main__':
-    application.debug = True
-    application.run(host='0.0.0.0', port=5000)
+    print(schema)
