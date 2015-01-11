@@ -2,7 +2,12 @@ import json
 import os
 import random
 
+log = shepherd.log
+blob = shepherd.blob
+
 def init(input, state):
+    log('Starting sheepdog with input<{0}>'.format(blob(input)))
+
     track = dict(workers=dict(), extras=dict())
     for i in range(input['expected']):
         track['workers'][i] = 0
@@ -13,6 +18,9 @@ def init(input, state):
     return ('ok', 'initialized', state)
 
 def handler(input, state, event):
+    log('Handler invokded with input<{0}>, state<{1}> and event<{2}>'.format(
+        blob(input), blob(state), blob(event)))
+
     if 'inform' == event['code']:
         state['signals'] += 1
 
@@ -60,12 +68,15 @@ def handler(input, state, event):
 
 def done(input, state):
     if 'result' in state:
+        log('Done with input<{0}> and state<{1}>'.format(
+            blob(input), blob(state)))
         return ('ok', state['result'])
 
     if 'sleep_count' not in state:
         state['sleep_count'] = 0
 
     state['sleep_count'] += 1
+    log('Wating for signal..{0}'.format(state['sleep_count']))
     return ('retry', 'SLEEPING_FOR_SIGNAL_'+str(state['sleep_count']), state, 5)
 
 workflow = {

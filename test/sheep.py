@@ -2,6 +2,9 @@ import json
 import os
 import random
 
+log = shepherd.log
+blob = shepherd.blob
+
 def modify(guid, worker, filename, key):
     obj = dict(guid=guid, total=0, workers=[], extraTotal=0, extraWorkers=[])
 
@@ -29,6 +32,8 @@ def modify(guid, worker, filename, key):
     os.write(fd, json.dumps(obj, indent=4, sort_keys=True))
 
 def init(input, state):
+    log('Starting sheep with input<{0}>'.format(blob(input)))
+
     index = ('%010d' % (input['worker']))[9]
 
     state = dict(seq=0, index=str(index), random=list())
@@ -42,9 +47,12 @@ def init(input, state):
     for i in num:
         state['random'].append(str(i))
 
+    log('Moving to centralbox')
     return ('moveto', 'initialized', state, 'centralbox')
 
 def handler(input, state, event):
+    log('Handler invokded with input<{0}>, state<{1}> and event<{2}>'.format(
+        blob(input), blob(state), blob(event)))
     return ('ok', 'got signal', state)
 
 def get_lock(input, state):
@@ -53,8 +61,10 @@ def get_lock(input, state):
     locks = list(state['index'])
     locks.extend(state['random'])
 
-    return ('lock', 'waiting for lock', state,
-            ['locktest-{0}'.format(l) for l in locks])
+    locks = ['locktest-{0}'.format(l) for l in locks]
+
+    log('Trying to acquire locks<{0}>'.format(blob(locks)))
+    return ('lock', 'waiting for lock', state, locks)
 
 def locktest(input, state):
     state['seq'] += 1
@@ -67,19 +77,23 @@ def locktest(input, state):
     for l in state['random']:
         modify(input['guid'], input['worker'], 'locktest.' + l, '')
 
-    return ('unlock', 'file modified', state,
-            ['locktest-{0}'.format(l) for l in locks])
+    locks = ['locktest-{0}'.format(l) for l in locks]
+
+    log('Releasing locks<{0}>'.format(blob(locks)))
+    return ('unlock', 'file modified', state, locks)
 
 def loop(input, state):
     state['seq'] += 1
 
     if state['seq'] < 5:
+        log('Wating in the loop({0})'.format(state['seq']))
         return ('retry', 'waiting in the loop', state, 1)
 
     message = dict(appname=input['appname'],
                    workername='sheepdog',
                    code='inform')
 
+    log('Sending message<{0}> to sheepdog'.format(blob(message)))
     return ('message', 'informing sheepdog', state, [message])
 
 def send_file(input, state):
@@ -102,9 +116,11 @@ def send_file(input, state):
                                  extraTotal=0,
                                  extraWorkers=[]))
 
+    log('Sending message<{0}> to sheepdog'.format(blob(message)))
     return ('message', 'sending message', state, [message])
 
 def done(input, state):
+    log('Done with input<{0}> and state<{1}>'.format(blob(input), blob(state)))
     return ('ok', 'done')
 
 workflow = {
