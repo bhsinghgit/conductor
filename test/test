@@ -8,7 +8,7 @@ import optparse
 
 def http_client(method, resource, args=None):
     header = {
-        'X-SHEPHERD-APPNAME': appname,
+        'X-SHEPHERD-APPID': appid,
         'X-SHEPHERD-APPKEY': appkey
     }
 
@@ -21,7 +21,7 @@ def http_client(method, resource, args=None):
     except Exception as e:
         return 500, 'EXCEPTION', str(e)
 
-appname = sys.argv[3]
+appid = sys.argv[3]
 appkey = sys.argv[4]
 workercount = int(sys.argv[5])
 
@@ -29,39 +29,40 @@ guid = str(uuid.uuid4())
 
 status = 500
 while status != 200:
-    status, reason, msg = http_client('PUT',
-                                      '/workers/{0}/sheepdog'.format(appname),
+    status, reason, msg = http_client('POST',
+                                      '/workers/{0}'.format(appid),
                                       dict(data=dict(expected=workercount,
-                                                     guid=guid,
-                                                     appname=appname),
+                                                     guid=guid),
                                            workflow='sheepdog'))
+    leader = msg['workerid']
 
 for i in range(workercount):
     status = 500
     while status != 200:
-        status, reason, msg = http_client('PUT',
-                                          '/workers/{0}/sheep-{1}'.format(
-                                              appname, i),
+        status, reason, msg = http_client('POST',
+                                          '/workers/{0}'.format(appid),
                                           dict(data=dict(worker=i,
+                                                         leader=leader,
                                                          count=workercount,
-                                                         guid=guid,
-                                                         appname=appname),
+                                                         guid=guid),
                                                workflow='sheep'))
 
+leader = str(leader)
 while True:
     time.sleep(5)
     status, reason, result = http_client('GET',
-                                         '/workers/%s/sheepdog' % (appname))
+                                         '/workers/{0}/{1}'.format(appid,
+                                                                   leader))
 
     if status != 200:
         continue
 
-    print(result['sheepdog']['status'])
+    print('{0} : {1}'.format(leader, result[leader]['status']))
 
-    if 'SLEEPING_FOR_SIGNAL_5' == result['sheepdog']['status']:
+    if 'SLEEPING_FOR_SIGNAL_5' == result[leader]['status']:
         http_client('POST',
-                    '/messages/{0}/sheepdog'.format(appname),
+                    '/messages/{0}'.format(leader),
                     dict(code='report'))
 
-    if result['sheepdog']['status'] in ['PASS', 'FAIL']:
+    if result[leader]['status'] in ['PASS', 'FAIL']:
         break

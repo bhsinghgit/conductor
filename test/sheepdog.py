@@ -13,7 +13,7 @@ def init(input, state):
         track['workers'][i] = 0
         track['extras'][i]  = 0
 
-    state = dict(messages=0, signals=0, track=track)
+    state = dict(messages=0, signals=list(), track=track)
 
     return ('ok', 'initialized', state)
 
@@ -22,16 +22,15 @@ def handler(input, state, event):
         blob(input), blob(state), blob(event)))
 
     if 'inform' == event['code']:
-        state['signals'] += 1
+        state['signals'].append(event['from'])
 
-        if state['signals'] < input['expected']:
-            return ('ok', 'received signal', state)
+        signal_count = len(state['signals'])
+        if signal_count < input['expected']:
+            return ('ok','received {0} signal'.format(signal_count), state)
 
-        messages = list()
-        for i in range(input['expected']):
-            messages.append(dict(appname=input['appname'],
-                                 workername='sheep-' + str(i),
-                                 code='signal'))
+        messages = dict()
+        for s in state['signals']:
+            messages[s] = dict(code='signal')
 
         return ('message', 'sent signal', state, messages)
 

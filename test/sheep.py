@@ -89,12 +89,10 @@ def loop(input, state):
         log('Wating in the loop({0})'.format(state['seq']))
         return ('retry', 'waiting in the loop', state, 1)
 
-    message = dict(appname=input['appname'],
-                   workername='sheepdog',
-                   code='inform')
+    message = dict([(input['leader'], dict(code='inform'))])
 
     log('Sending message<{0}> to sheepdog'.format(blob(message)))
-    return ('message', 'informing sheepdog', state, [message])
+    return ('message', 'informing sheepdog', state, message)
 
 def send_file(input, state):
     state['seq'] += 1
@@ -102,22 +100,20 @@ def send_file(input, state):
     filename = 'locktest.' + str(input['worker'])
 
     if os.path.isfile(filename):
-        message = dict(appname=input['appname'],
-                       workername='sheepdog',
-                       code='file',
-                       data=json.loads(open(filename).read()))
+        message = dict([(input['leader'],
+                         dict(code='file',
+                              data=json.loads(open(filename).read())))])
     else:
-        message = dict(appname=input['appname'],
-                       workername='sheepdog',
-                       code='file',
-                       data=dict(guid=input['guid'],
-                                 total=0,
-                                 workers=[],
-                                 extraTotal=0,
-                                 extraWorkers=[]))
+        message = dict([(input['leader'],
+                         dict(code='file',
+                              data=dict(guid=input['guid'],
+                                        total=0,
+                                        workers=[],
+                                        extraTotal=0,
+                                        extraWorkers=[])))])
 
     log('Sending message<{0}> to sheepdog'.format(blob(message)))
-    return ('message', 'sending message', state, [message])
+    return ('message', 'sending message', state, message)
 
 def done(input, state):
     log('Done with input<{0}> and state<{1}>'.format(blob(input), blob(state)))
