@@ -40,8 +40,7 @@ class HTTP(object):
             conn = httplib.HTTPConnection(self.server)
             conn.request(method, resource, request, headers = {
                 'X-SHEPHERD-APPID': os.environ.get('APPID'),
-                'X-SHEPHERD-APPKEY': os.environ.get('APPKEY'),
-                'X-SHEPHERD-AGENTKEY': os.environ.get('KEY')})
+                'X-SHEPHERD-APPKEY': os.environ.get('APPKEY')})
 
             r = conn.getresponse()
 
@@ -195,7 +194,6 @@ if 'shepherd-workflow' != sys.argv[1]:
     status, reason, config = HTTP(sys.argv[1]).get('/config')
 
     os.environ['MYIP'] = config['agentip']
-    config = config['conf']
     os.environ['SESSION'] = time.strftime('%y%m%d%H',time.gmtime())
     os.environ['TASK_SERVER'] = sys.argv[1]
 
@@ -245,26 +243,28 @@ if 'shepherd-workflow' != sys.argv[1]:
                     pass
 
             nobody_gid = pwd.getpwnam('nobody').pw_gid
-            for appid, workflow_count in pending[myip].iteritems():
-                app_dir = os.path.join('apps', appid)
-                app = config['apps'][appid]
-                uid = app['uid']
+            for uid, workflow_count in pending[myip].iteritems():
+                app_dir = os.path.join('apps', uid)
+                app = config['apps'][uid]
 
-                if type(uid) is int:
-                    home = os.path.join(app_dir, str(uid))
+                key = hashlib.sha256(myip+os.environ.get('KEY')).hexdigest()
+                key = hashlib.sha256(key+app['key']).hexdigest()
+
+                os.environ['APPID'] = str(uid)
+                os.environ['APPKEY'] = key
+
+                if uid.isdigit():
+                    home = os.path.join(app_dir, uid)
                 else:
                     home = pwd.getpwnam(uid).pw_dir
                     uid = pwd.getpwnam(uid).pw_uid
-
-                os.environ['APPKEY'] = app['appkey']
-                os.environ['APPID'] = appid
 
                 if ('syspath' in app) and (app['syspath'] is not None):
                     os.environ['SYSPATH'] = app['syspath']
 
                 if not os.path.isdir(app_dir):
                     os.mkdir(app_dir, 0700)
-                    os.chown(app_dir, uid, nobody_gid)
+                    os.chown(app_dir, int(uid), nobody_gid)
 
                 count = 0
                 for i in range(workflow_count - proc_count.get(uid, 0)):
@@ -274,7 +274,7 @@ if 'shepherd-workflow' != sys.argv[1]:
                         os.chdir(app_dir)
                         os.setsid()
                         os.setgid(nobody_gid)
-                        os.setuid(uid)
+                        os.setuid(int(uid))
 
                         os.environ['HOME'] = home
 
