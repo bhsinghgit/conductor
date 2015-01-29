@@ -267,7 +267,7 @@ if 'shepherd-workflow' != sys.argv[1]:
                     os.chown(app_dir, int(uid), nobody_gid)
 
                 count = 0
-                for i in range(workflow_count - proc_count.get(uid, 0)):
+                for i in range(workflow_count - proc_count.get(int(uid), 0)):
                     if 0 == os.fork():
                         os.closerange(4, 1000)
     
