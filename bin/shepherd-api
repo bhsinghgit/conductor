@@ -234,7 +234,7 @@ def pending_get():
         if 'default' == m['pool']:
             ip_list = conf['apps'][appid]['hosts'].keys()
         else:
-            ip_list = conf['apps'][appid]['pools'][m['pool']]
+            ip_list = conf['apps'][appid]['pools'].get(m['pool'], [])
 
         while m['count'] > 0:
             start_count = m['count']
