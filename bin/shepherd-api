@@ -175,8 +175,6 @@ def query(sql, params=None):
 def validate_request(appid=None):
     agentip = flask.request.headers.get('X-Real-IP',
                                         flask.request.remote_addr)
-    agentkey = conf['agents'][agentip]['key']
-
     req = json.loads(flask.request.data)
 
     if not req:
@@ -203,16 +201,18 @@ def validate_request(appid=None):
     query("""insert into counters values(%s, 0, null)
              on duplicate key update count=count+1""", (appid))
 
-    if app['key'] == hashlib.sha256(str(appid)+appkey).hexdigest():
-        req['agenttype'] = 'user'
-    elif appkey == hashlib.sha256(agentkey+app['key']).hexdigest():
-        req['agenttype'] = 'agent'
-    else:
-        throw(403, 'KEY_MISMATCH')
-
     req['appid'] = str(appid)
     req['agentip'] = agentip
-    return req
+
+    if app['key'] == hashlib.sha256(str(appid)+appkey).hexdigest():
+        return req
+
+    if agentip in conf['agents']:
+        agentkey = conf['agents'][agentip]['key']
+        if appkey == hashlib.sha256(agentkey+app['key']).hexdigest():
+            return req
+
+    throw(403, 'KEY_MISMATCH')
 
 
 @transaction('/pending', methods=['GET'])
