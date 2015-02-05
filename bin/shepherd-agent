@@ -39,8 +39,8 @@ class HTTP(object):
 
             conn = httplib.HTTPConnection(self.server)
             conn.request(method, resource, request, headers = {
-                'X-SHEPHERD-APPID': os.environ.get('APPID'),
-                'X-SHEPHERD-APPKEY': os.environ.get('APPKEY')})
+                'Authorization': 'Basic ' + base64.b64encode('{0}:{1}'.format(
+                    os.environ.get('APPID'), os.environ.get('KEY')))})
 
             r = conn.getresponse()
 
@@ -110,6 +110,7 @@ def blob(obj):
            msg = str(obj)
 
     return '<{0}>'.format(log('BLOB', msg))
+
 
 shepherd.log = log
 shepherd.blob = blob
@@ -194,6 +195,7 @@ if 'shepherd-workflow' != sys.argv[1]:
     status, reason, config = HTTP(sys.argv[1]).get('/config')
 
     os.environ['MYIP'] = config['agentip']
+    os.environ['APPID'] = config['agentip']
     os.environ['SESSION'] = time.strftime('%y%m%d%H',time.gmtime())
     os.environ['TASK_SERVER'] = sys.argv[1]
 
@@ -226,8 +228,8 @@ if 'shepherd-workflow' != sys.argv[1]:
 
     timeout = time.time() + 300
     while time.time() < timeout:
-        myip = os.environ['MYIP']
         status, reason, pending = HTTP(sys.argv[1]).get('/pending')
+        myip = os.environ['MYIP']
         if (200 == status) and (myip in pending):
             proc_count = dict()
             for d in [d for d in os.listdir('/proc') if d.isdigit()]:
@@ -243,38 +245,40 @@ if 'shepherd-workflow' != sys.argv[1]:
                     pass
 
             nobody_gid = pwd.getpwnam('nobody').pw_gid
-            for uid, workflow_count in pending[myip].iteritems():
-                app_dir = os.path.join('apps', uid)
-                app = config['apps'][uid]
+            for appid, workflow_count in pending[myip].iteritems():
+                app_dir = os.path.join('apps', appid)
+                app = config['apps'][appid]
 
-                key = hashlib.sha256(myip+os.environ.get('KEY')).hexdigest()
-                key = hashlib.sha256(key+app['key']).hexdigest()
+                key = hashlib.sha1('{0}:{1}'.format(
+                    os.environ['MYIP'], os.environ['KEY'])).hexdigest()
+                key = hashlib.sha1('{0}:{1}'.format(key,app['key'])).hexdigest()
 
-                os.environ['APPID'] = str(uid)
-                os.environ['APPKEY'] = key
-
-                if uid.isdigit():
-                    home = os.path.join(app_dir, uid)
+                if appid.isdigit():
+                    home = os.path.join(app_dir, appid)
+                    uid = int(appid)
                 else:
-                    home = pwd.getpwnam(uid).pw_dir
-                    uid = pwd.getpwnam(uid).pw_uid
+                    home = pwd.getpwnam(appid).pw_dir
+                    uid = pwd.getpwnam(appid).pw_uid
 
                 if ('syspath' in app) and (app['syspath'] is not None):
                     os.environ['SYSPATH'] = app['syspath']
 
                 if not os.path.isdir(app_dir):
                     os.mkdir(app_dir, 0700)
-                    os.chown(app_dir, int(uid), nobody_gid)
+                    os.chown(app_dir, uid, nobody_gid)
 
                 count = 0
-                for i in range(workflow_count - proc_count.get(int(uid), 0)):
+                for i in range(workflow_count - proc_count.get(uid, 0)):
                     if 0 == os.fork():
+                        os.environ['APPID'] = appid
+                        os.environ['KEY'] = key
+
                         os.closerange(4, 1000)
     
                         os.chdir(app_dir)
                         os.setsid()
                         os.setgid(nobody_gid)
-                        os.setuid(int(uid))
+                        os.setuid(uid)
 
                         os.environ['HOME'] = home
 
@@ -286,8 +290,7 @@ if 'shepherd-workflow' != sys.argv[1]:
                     else:
                         count += 1
                 if count > 0:
-                    log('spawned count({0}) workers for uid({1})'.format(
-                            count, uid))
+                    log('spawned workers({0}) for uid({1})'.format(count, uid))
 
         conn = httplib.HTTPConnection(config['logs']['server'])
         shipping_time = time.time() + 5

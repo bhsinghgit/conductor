@@ -3,18 +3,16 @@ import sys
 import json
 import uuid
 import time
+import base64
 import httplib
 import optparse
 
 def http_client(method, resource, args=None):
-    header = {
-        'X-SHEPHERD-APPID': appid,
-        'X-SHEPHERD-APPKEY': appkey
-    }
-
     try:
         conn = httplib.HTTPConnection(sys.argv[1], sys.argv[2])
-        conn.request(method, resource, json.dumps(args), header)
+        conn.request(method, resource, json.dumps(args), {
+            'Authorization': 'Basic ' + base64.b64encode('{0}:{1}'.format(
+                appid, appkey))})
 
         response = conn.getresponse()
         return response.status, response.reason, json.loads(response.read())
@@ -29,8 +27,7 @@ guid = str(uuid.uuid4())
 
 status = 500
 while status != 200:
-    status, reason, msg = http_client('POST',
-                                      '/workers/{0}'.format(appid),
+    status, reason, msg = http_client('POST', '/workers',
                                       dict(data=dict(expected=workercount,
                                                      guid=guid),
                                            workflow='sheepdog'))
@@ -39,8 +36,7 @@ while status != 200:
 for i in range(workercount):
     status = 500
     while status != 200:
-        status, reason, msg = http_client('POST',
-                                          '/workers/{0}'.format(appid),
+        status, reason, msg = http_client('POST', '/workers',
                                           dict(data=dict(worker=i,
                                                          leader=leader,
                                                          count=workercount,
@@ -50,9 +46,7 @@ for i in range(workercount):
 leader = str(leader)
 while True:
     time.sleep(5)
-    status, reason, result = http_client('GET',
-                                         '/workers/{0}/{1}'.format(appid,
-                                                                   leader))
+    status, reason, result = http_client('GET', '/workers/{0}'.format(leader))
 
     if status != 200:
         continue
@@ -60,8 +54,7 @@ while True:
     print('{0} : {1}'.format(leader, result[leader]['status']))
 
     if 'SLEEPING_FOR_SIGNAL_5' == result[leader]['status']:
-        http_client('POST',
-                    '/messages/{0}'.format(leader),
+        a, b, c = http_client('POST', '/messages/{0}'.format(leader),
                     dict(code='report'))
 
     if result[leader]['status'] in ['PASS', 'FAIL']:
