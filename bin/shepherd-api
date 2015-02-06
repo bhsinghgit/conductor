@@ -774,7 +774,8 @@ def config_get():
     if ('mysql' in c) and ('password' in c['mysql']):
         c['mysql']['password'] = '*****'
 
-    c['agentip'] = clientip
+    c['agentip'] = flask.request.headers.get('X-Real-IP',
+                                             flask.request.remote_addr)
 
     return json_response(c)
 
