@@ -89,7 +89,7 @@ create table counters(
 ) engine=innodb;
 """
 
-conf_file_path = '/tmp/shepherd.yaml'
+conf_file = '/tmp/shepherd.yaml'
 
 conf = None
 clientip = None
@@ -160,7 +160,7 @@ def transaction(*args, **kwargs):
             appid = flask.request.authorization['username']
             password = flask.request.authorization['password']
 
-            conf = yaml.load(open(conf_file_path))
+            conf = yaml.load(open(conf_file))
 
             authSuccess = False
             appid = int(appid) if appid.isdigit() else appid
@@ -592,15 +592,16 @@ regex = re.compile('^\[(.+?) (\d+) (\d+) (\d{6}\.\d{6}\.\d{6}) (.+?)\] : ')
 
 @application.route('/log/<logfile>/<size>', methods=['POST'])
 def log_put(logfile, size):
-    conf = yaml.load(open(conf_file_path))
+    conf = yaml.load(open(conf_file))
     os.chdir(conf['logs']['dir'])
 
-    logfile = os.path.join(clientip, logfile)
+    logdir = flask.request.headers.get('X-Real-IP', flask.request.remote_addr)
+    logfile = os.path.join(logdir, logfile)
 
     fd = None
     try:
-        if not os.path.isdir(clientip):
-            os.makedirs(clientip)
+        if not os.path.isdir(logdir):
+            os.makedirs(logdir)
 
         fd = os.open(logfile, os.O_CREAT|os.O_WRONLY|os.O_APPEND)
         fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -660,7 +661,7 @@ def log_put(logfile, size):
 @application.route('/logs/<thread>/sessions', methods=['GET'])
 @application.route('/logs/<thread>/<session>', methods=['GET'])
 def logs_get(thread=None, session=None):
-    conf = yaml.load(open(conf_file_path))
+    conf = yaml.load(open(conf_file))
     os.chdir(conf['logs']['dir'])
 
     begin = flask.request.args.get('begin', '0')
@@ -751,7 +752,7 @@ def logs_get(thread=None, session=None):
 
 @application.route('/blob/<ip>/<logfile>/<offset>', methods=['GET'])
 def blob_get(ip, logfile, offset):
-    conf = yaml.load(open(conf_file_path))
+    conf = yaml.load(open(conf_file))
     os.chdir(conf['logs']['dir'])
 
     with open(os.path.join(ip, logfile)) as file:
@@ -768,7 +769,7 @@ def blob_get(ip, logfile, offset):
 
 @application.route('/config', methods=['GET'])
 def config_get():
-    conf = yaml.load(open(conf_file_path))
+    conf = yaml.load(open(conf_file))
     c = copy.deepcopy(conf)
 
     if ('mysql' in c) and ('password' in c['mysql']):
@@ -782,7 +783,7 @@ def config_get():
 
 @application.route('/', methods=['GET'])
 def index():
-    return flask.Response('\n'.join([conf_file_path, config, schema]),
+    return flask.Response('\n'.join([conf_file, config, schema]),
                           200, mimetype='text/plain')
 
 if __name__ == '__main__':
