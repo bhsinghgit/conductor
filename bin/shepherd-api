@@ -14,7 +14,7 @@ import pymysql
 import hashlib
 import functools
 
-config="""
+config = """
 mysql:
     host: 127.0.0.1
     user: root
@@ -40,7 +40,7 @@ apps:
                 - 127.0.0.1
 """
 
-schema="""
+schema = """
 create database if not exists shepherd;
 use shepherd;
 
@@ -125,12 +125,13 @@ def json_response(status, obj=None):
 
 def html_table_response(table):
     return flask.Response(
-      '<table class="logs" align="center" border="1">{0}</table>'.format(table),
-      200, mimetype='text/html')
-   
+        '<table class="logs" align="center" border="1">{0}</table>'.format(
+            table), 200, mimetype='text/html')
+
 
 def login_response():
-    return flask.Response('401 Not Authorized', 401,
+    return flask.Response(
+        '401 Not Authorized', 401,
         {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 
@@ -183,7 +184,7 @@ def transaction(*args, **kwargs):
 
             if not authSuccess:
                 return login_response()
-        
+
             db_conn = pymysql.connect(conf['mysql']['host'],
                                       conf['mysql']['user'],
                                       conf['mysql']['password'],
@@ -242,9 +243,10 @@ def tasks_appid_get(tmpid):
                           appid=%s
                     order by timestamp, priority""", (appid))
     return html_table_response(''.join([
-        ('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}' + 
-         '</td><td>{4}</td></tr>').format( m['workerid'], m['pool'], m['code'],
-             m['priority'], m['timestamp']) for m in msgs]))
+        ('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}' +
+         '</td><td>{4}</td></tr>').format(
+             m['workerid'], m['pool'], m['code'], m['priority'],
+             m['timestamp']) for m in msgs]))
 
 
 @transaction('/tasks', methods=['GET'])
@@ -257,7 +259,7 @@ def tasks_get():
                     group by appid""")
     return html_table_response(''.join([
         '<tr><td>{0}</td><td><a href="/tasks/{1}">{2}</a></td></tr>'.format(
-        m['appid'], m['appid'], m['count']) for m in msgs]))
+            m['appid'], m['appid'], m['count']) for m in msgs]))
 
 
 @transaction('/locks/<tmpid>', methods=['GET'])
@@ -274,8 +276,8 @@ def locks_appid_get(tmpid):
     return html_table_response(''.join([
         ('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td>' +
          '<td><a href="/unlock/{1}/{0}">unlock</a></td></tr>').format(
-             m['lockname'], m['workerid'], m['status'], m['timestamp'])
-             for m in msgs]))
+             m['lockname'], m['workerid'], m['status'],
+             m['timestamp']) for m in msgs]))
 
 
 @transaction('/locks', methods=['GET'])
@@ -285,14 +287,15 @@ def locks_get():
                     group by appid""")
     return html_table_response(''.join([
         '<tr><td>{0}</td><td><a href="/locks/{1}">{2}</a></td></tr>'.format(
-        m['appid'], m['appid'], m['count']) for m in msgs]))
+            m['appid'], m['appid'], m['count']) for m in msgs]))
 
 
 @transaction('/pending', methods=['GET'])
 def pending_get():
     msgs = query("""select appid, pool, count(*) as count
                     from messages
-                    where timestamp < now() and state='head' and lock_ip is null
+                    where timestamp < now() and
+                          state='head' and lock_ip is null
                     group by appid, pool""")
 
     allocation = dict()
@@ -367,7 +370,7 @@ def mark_head(workerid):
     rows = query("select appid from workers where workerid=%s", (workerid))
     if 1 != len(rows):
         throw(400, 'INVALID_MSG_DESTINATION')
- 
+
     msgid = query("""select msgid from messages
                      where appid=%s and workerid=%s
                      order by msgid limit 1""", (rows[0]['appid'], workerid))
@@ -390,7 +393,7 @@ def messages_post(workerid):
     rows = query("select appid from workers where workerid=%s", (workerid))
     if (1 != len(rows)) or (rows[0]['appid'] != str(appid)):
         throw(400, 'INVALID_MSG_DESTINATION')
- 
+
     query("""insert into messages
              set workerid=%s, appid=%s, senderid=%s,
                  pool=%s, state='queued', priority=%s, code=%s, data=%s,
@@ -430,13 +433,13 @@ def commit_impl():
     if 'continuation' not in req:
         if 'exception' in req:
             workflow_status = req['exception']
-            workflow_state  = 'exception'
+            workflow_state = 'exception'
         elif 'status' in req:
             workflow_status = req['status']
-            workflow_state  = 'done'
+            workflow_state = 'done'
         else:
             workflow_status = 'unknown'
-            workflow_state  = 'exception'
+            workflow_state = 'exception'
 
         query("""delete from messages where appid=%s and workerid=%s""",
               (appid, req['workerid']))
@@ -455,7 +458,7 @@ def commit_impl():
         rows = query("select appid from workers where workerid=%s", (workerid))
         if 1 != len(rows):
             throw(400, 'INVALID_MSG_DESTINATION')
- 
+
         appid = rows[0]['appid']
 
         query("""insert into messages
@@ -474,7 +477,7 @@ def commit_impl():
     if 'lock' in req:
         for lockname in set(req['lock']):
             query("insert into locks set lockname=%s, appid=%s, workerid=%s",
-                 (lockname, appid, req['workerid']))
+                  (lockname, appid, req['workerid']))
 
         counter = 0
         for lockname in set(req['lock']):
@@ -573,13 +576,13 @@ def lockmessage_post():
             worker = query("""select continuation, session from workers
                               where workerid=%s""", (rows[0]['workerid']))[0]
 
-            result = dict(msgid = rows[0]['msgid'],
-                          workerid = rows[0]['workerid'],
-                          session = worker['session'],
-                          continuation = json.loads(worker['continuation']),
-                          code = rows[0]['code'],
-                          senderid = rows[0]['senderid'],
-                          pool = pool)
+            result = dict(msgid=rows[0]['msgid'],
+                          workerid=rows[0]['workerid'],
+                          session=worker['session'],
+                          continuation=json.loads(worker['continuation']),
+                          code=rows[0]['code'],
+                          senderid=rows[0]['senderid'],
+                          pool=pool)
 
             if rows[0]['data']:
                 result['data'] = json.loads(rows[0]['data'])
@@ -589,6 +592,7 @@ def lockmessage_post():
     return 'NOT_FOUND'
 
 regex = re.compile('^\[(.+?) (\d+) (\d+) (\d{6}\.\d{6}\.\d{6}) (.+?)\] : ')
+
 
 @application.route('/log/<logfile>/<size>', methods=['POST'])
 def log_put(logfile, size):
@@ -603,8 +607,8 @@ def log_put(logfile, size):
         if not os.path.isdir(logdir):
             os.makedirs(logdir)
 
-        fd = os.open(logfile, os.O_CREAT|os.O_WRONLY|os.O_APPEND)
-        fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+        fd = os.open(logfile, os.O_CREAT | os.O_WRONLY | os.O_APPEND)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
         if os.fstat(fd).st_size == int(size):
             os.write(fd, flask.request.data)
@@ -621,7 +625,7 @@ def log_put(logfile, size):
     conn.execute("""create table if not exists files(logfile text,
         processed integer, primary key(logfile))""")
     processed = conn.execute("select processed from files where logfile=?",
-                          (logfile,)).fetchone()
+                             (logfile,)).fetchone()
     if processed:
         processed = processed[0]
     else:
@@ -645,9 +649,10 @@ def log_put(logfile, size):
 
     conn = sqlite3.connect('index.db')
     conn.executemany("insert or ignore into offsets values(?,?,?,?,?,0)",
-        [(k[0], k[1], v[0], logfile, v[1]) for k,v in boffsets.iteritems()])
+                     [(k[0], k[1], v[0], logfile, v[1])
+                         for k, v in boffsets.iteritems()])
     conn.executemany("update offsets set end=? where thread=? and session=?",
-        [(v, k[0], k[1]) for k,v in eoffsets.iteritems()])
+                     [(v, k[0], k[1]) for k, v in eoffsets.iteritems()])
     conn.execute("update files set processed=? where logfile=?",
                  (processed, logfile))
     conn.commit()
@@ -665,7 +670,7 @@ def logs_get(thread=None, session=None):
     os.chdir(conf['logs']['dir'])
 
     begin = flask.request.args.get('begin', '0')
-    end   = flask.request.args.get('end',   '9')
+    end = flask.request.args.get('end',   '9')
     limit = flask.request.args.get('limit', 25)
 
     conn = sqlite3.connect('index.db')
@@ -691,7 +696,7 @@ def logs_get(thread=None, session=None):
         return html_table_response(''.join([
             '<tr><td><a href="{0}">{1}</a></td><td>{2}</td></tr>'.format(
                 '/logs/{0}/{1}'.format(thread, r[0]), r[0], r[1])
-                    for r in result]))
+            for r in result]))
 
     rows = conn.execute("""select session, logfile, begin, end
         from offsets where thread=?""", (thread,)).fetchall()
@@ -715,7 +720,7 @@ def logs_get(thread=None, session=None):
         with open(logfile, 'r') as file:
             file.seek(begin)
 
-            blobs  = dict()
+            blobs = dict()
             for line in file:
                 if begin > end:
                     break
@@ -724,30 +729,33 @@ def logs_get(thread=None, session=None):
                 if m and (thread == m.group(1)) and (str(s) == m.group(2)):
                     seq, timestamp, tag = m.group(3), m.group(4), m.group(5)
                     if 'BLOB' == tag:
-                        hdr = '[{0} {1} {2} {3} {4}]'.format(m.group(1),
-                            m.group(2), seq, timestamp, tag)
+                        hdr = '[{0} {1} {2} {3} {4}]'.format(
+                            m.group(1), m.group(2), seq, timestamp, tag)
                         blobs[hashlib.md5(hdr).hexdigest()] = begin
                     else:
                         msg = cgi.escape(line[len(m.group(0)):])
                         find_pattern = '([-\w]+)&lt;&lt;(\w{32})&gt;&gt;'
                         for m in re.finditer(find_pattern, msg):
                             if m.group(2) in blobs:
-                                msg = msg.replace(m.group(0),
-                                    '<a href="/blob/{0}/{1}">{2}</a>'.format(
-                                        logfile, blobs[m.group(2)], m.group(1)))
+                                msg = msg.replace(
+                                    m.group(0),
+                                    '<a href="/blob/{0}/{1}">{2}</a>'
+                                    .format(logfile, blobs[m.group(2)],
+                                            m.group(1)))
                         for m in re.finditer('&lt;&lt;(\w{32})&gt;&gt;', msg):
                             if m.group(1) in blobs:
-                                msg = msg.replace(m.group(0),
-                                    '<a href="/blob/{0}/{1}">blob</a>'.format(
-                                        logfile, blobs[m.group(1)]))
+                                msg = msg.replace(
+                                    m.group(0),
+                                    '<a href="/blob/{0}/{1}">blob</a>'
+                                    .format(logfile, blobs[m.group(1)]))
 
                         tag = tag.replace(',', ' ') + ' SESSION-' + str(s)
                         result.append((timestamp, tag, msg))
                 begin += len(line)
 
     return html_table_response(''.join([
-      '<tr class="{0}"><td class="timestamp">{1}</td><td>{2}</td></tr>'.format(
-        r[1], r[0], r[2]) for r in result]))
+        '<tr class="{0}"><td class="timestamp">{1}</td><td>{2}</td></tr>'
+        .format(r[1], r[0], r[2]) for r in result]))
 
 
 @application.route('/blob/<ip>/<logfile>/<offset>', methods=['GET'])

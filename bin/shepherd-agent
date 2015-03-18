@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#* * * * * cd /tmp/test && KEY=<agentkey> <DIR>/bin/shepherd-agent <ip>:<port>
+# * * * * * cd /tmp/test && KEY=<agentkey> <DIR>/bin/shepherd-agent <ip>:<port>
 
 import os
 import re
@@ -38,7 +38,7 @@ class HTTP(object):
             request = json.dumps(args, indent=4, sort_keys=True)
 
             conn = httplib.HTTPConnection(self.server)
-            conn.request(method, resource, request, headers = {
+            conn.request(method, resource, request, headers={
                 'Authorization': 'Basic ' + base64.b64encode('{0}:{1}'.format(
                     os.environ.get('APPID'), os.environ.get('KEY')))})
 
@@ -54,15 +54,15 @@ class HTTP(object):
         if 'logger' in globals():
             log('API', ('method({0}) resource({1}) status({2}) ' +
                 'msec({3}) request<{4}> response<{5}>').format(
-                 method, resource, '{0} {1}'.format(status, reason),
-                 int((time.time()-start_time)*1000),
-                 len(request) if (200 == status) else blob(request),
-                 len(response) if (200 == status) else blob(response)))
+                method, resource, '{0} {1}'.format(status, reason),
+                int((time.time()-start_time)*1000),
+                len(request) if (200 == status) else blob(request),
+                len(response) if (200 == status) else blob(response)))
 
         return status, reason, json.loads(response)
 
     def get(self, resource, args=None):
-         return self.client('GET', resource, args)
+        return self.client('GET', resource, args)
 
     def post(self, resource, args=None):
         return self.client('POST', resource, args)
@@ -74,7 +74,7 @@ class Logger(object):
             session = os.environ['SESSION']
 
         self.sequence = 0
-        self.session  = "[%s %s" % (thread, session)
+        self.session = "[%s %s" % (thread, session)
 
 
 def log(msgORtag, message=None):
@@ -86,14 +86,15 @@ def log(msgORtag, message=None):
         tag, msg = 'LOG', msgORtag
     else:
         tag, msg = msgORtag, message
-            
+
     if ('BLOB' == tag) or (msg.find('\n') > -1):
         tag = 'BLOB'
         msg = base64.b64encode(msg)
 
-    hdr = '{0} {1} {2}.{3} {4}]'.format(logger.session, logger.sequence,
-        time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
-        '%06d' % (int((utc - int(utc)) * 1000000)), tag)
+    hdr = '{0} {1} {2}.{3} {4}]'.format(
+          logger.session, logger.sequence,
+          time.strftime("%y%m%d.%H%M%S", time.gmtime(utc)),
+          '%06d' % (int((utc - int(utc)) * 1000000)), tag)
 
     os.write(3, '\n{0} : {1}'.format(hdr, msg))
 
@@ -107,7 +108,7 @@ def blob(obj):
         try:
             msg = json.dumps(obj, indent=4, sort_keys=True)
         except:
-           msg = str(obj)
+            msg = str(obj)
 
     return '<{0}>'.format(log('BLOB', msg))
 
@@ -118,7 +119,7 @@ shepherd.blob = blob
 
 def worker(state, event):
     workflow = state['workflow']
-    input    = state['input']
+    input = state['input']
 
     if 'init' == event['code']:
         control_info = dict(state='init', seq=0)
@@ -149,7 +150,7 @@ def worker(state, event):
             raise Exception('invalid return value')
     except Exception as e:
         log('workflow aborted return({0}) exception({1})'.format(
-                result[0], str(e)))
+            result[0], str(e)))
         return dict(status=str(e))
 
     if 2 == len(result):
@@ -162,7 +163,7 @@ def worker(state, event):
             control_info['state'] = next_state
     else:
             next_state = control_info['state']
-            
+
     commit_dict = dict(status=result[1],
                        state=dict(workflow=workflow,
                                   input=input,
@@ -178,7 +179,7 @@ def worker(state, event):
     if (next_state is not None) and ('lock' != result[0]):
         commit_dict['alarm'] = 0
 
-    if  result[0] in ['sleep', 'retry']:
+    if result[0] in ['sleep', 'retry']:
         commit_dict['alarm'] = result[3]
 
     return commit_dict
@@ -187,16 +188,17 @@ def worker(state, event):
 if 'shepherd-workflow' != sys.argv[1]:
     logseq = time.strftime('%y%m%d', time.gmtime())
 
+    append_mode = os.O_CREAT | os.O_WRONLY | os.O_APPEND
     os.dup2(os.open('/dev/null', os.O_RDONLY), 0)
-    os.dup2(os.open('err.%s' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 1)
-    os.dup2(os.open('log.%s' % (logseq), os.O_CREAT|os.O_WRONLY|os.O_APPEND), 3)
+    os.dup2(os.open('err.%s' % (logseq), append_mode), 1)
+    os.dup2(os.open('log.%s' % (logseq), append_mode), 3)
     os.dup2(1, 2)
 
     status, reason, config = HTTP(sys.argv[1]).get('/config')
 
     os.environ['MYIP'] = config['agentip']
     os.environ['APPID'] = config['agentip']
-    os.environ['SESSION'] = time.strftime('%y%m%d%H',time.gmtime())
+    os.environ['SESSION'] = time.strftime('%y%m%d%H', time.gmtime())
     os.environ['TASK_SERVER'] = sys.argv[1]
 
     logger = Logger('{0}.{1}'.format('shepherd', os.environ['MYIP']))
@@ -206,7 +208,7 @@ if 'shepherd-workflow' != sys.argv[1]:
             os.mkdir('apps')
 
         lockfd = os.open('apps', os.O_RDONLY)
-        fcntl.flock(lockfd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+        fcntl.flock(lockfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except Exception as e:
         log('could not acquire lock. exception({0})'.format(str(e)))
         exit()
@@ -251,14 +253,15 @@ if 'shepherd-workflow' != sys.argv[1]:
 
                 key = hashlib.sha1('{0}:{1}'.format(
                     os.environ['MYIP'], os.environ['KEY'])).hexdigest()
-                key = hashlib.sha1('{0}:{1}'.format(key,app['key'])).hexdigest()
+                key = hashlib.sha1('{0}:{1}'.format(
+                    key, app['key'])).hexdigest()
 
-                if appid.isdigit():
-                    home = os.path.join(app_dir, appid)
-                    uid = int(appid)
-                else:
+                try:
                     home = pwd.getpwnam(appid).pw_dir
                     uid = pwd.getpwnam(appid).pw_uid
+                except:
+                    log('user({0}) does not exist on this host'.format(appid))
+                    continue
 
                 if ('syspath' in app) and (app['syspath'] is not None):
                     os.environ['SYSPATH'] = app['syspath']
@@ -274,7 +277,7 @@ if 'shepherd-workflow' != sys.argv[1]:
                         os.environ['KEY'] = key
 
                         os.closerange(4, 1000)
-    
+
                         os.chdir(app_dir)
                         os.setsid()
                         os.setgid(nobody_gid)
@@ -361,7 +364,7 @@ else:
             result = worker_module.worker(msg['continuation'], event)
         except Exception as e:
             result = dict(status=str(e))
-         
+
         logger = common_logger
 
         if result is None:
@@ -371,7 +374,7 @@ else:
             result['continuation'] = result['state']
             del(result['state'])
 
-        result['msgid']    = msg['msgid']
+        result['msgid'] = msg['msgid']
         result['workerid'] = msg['workerid']
 
         while True:
