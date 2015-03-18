@@ -795,4 +795,4 @@ def index():
                           200, mimetype='text/plain')
 
 if __name__ == '__main__':
-    print(schema)
+    os.system('/usr/bin/env gunicorn -w 4 -b 0.0.0.0:5000')
