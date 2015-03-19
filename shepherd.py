@@ -1,9 +1,7 @@
-#!/usr/bin/env python
 import os
 import re
 import cgi
 import json
-import time
 import yaml
 import copy
 import fcntl
@@ -152,7 +150,6 @@ def transaction(*args, **kwargs):
             global appid
             global req
 
-            msec = time.time() * 1000
             clientip = flask.request.headers.get('X-Real-IP',
                                                  flask.request.remote_addr)
             if not flask.request.authorization:
@@ -670,7 +667,7 @@ def logs_get(thread=None, session=None):
     os.chdir(conf['logs']['dir'])
 
     begin = flask.request.args.get('begin', '0')
-    end = flask.request.args.get('end',   '9')
+    end = flask.request.args.get('end', '9')
     limit = flask.request.args.get('limit', 25)
 
     conn = sqlite3.connect('index.db')
@@ -708,8 +705,8 @@ def logs_get(thread=None, session=None):
             r = (l[0], l[1]) if (len(l) > 1) else (l[0], l[0])
             for n in range(int(r[0]), int(r[1])+1):
                 sset.add(n)
-        sdict = dict([(r[0], (r[1], r[2], r[3]))
-                     for r in rows if r[0] in sset])
+        sdict = dict([(x[0], (x[1], x[2], x[3]))
+                     for x in rows if x[0] in sset])
     else:
         sdict = dict([(r[0], (r[1], r[2], r[3])) for r in rows])
 
@@ -793,6 +790,3 @@ def config_get():
 def index():
     return flask.Response('\n'.join([conf_file, config, schema]),
                           200, mimetype='text/plain')
-
-if __name__ == '__main__':
-    os.system('/usr/bin/env gunicorn -w 4 -b 0.0.0.0:5000')
