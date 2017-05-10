@@ -29,13 +29,10 @@ def main(port):
         log('already running on port(%d)', port)
         os._exit(0)
 
-
     workers = dict()
     while True:
-        ready, _, _ = select.select([sock] + workers.keys(), [], [], 1)
-
-        for rdy in ready:
-            if rdy == sock:
+        for ready in select.select([sock] + workers.keys(), [], [], 1)[0]:
+            if ready == sock:
                 s, addr = sock.accept()
                 log('received connection from %s', addr)
 
@@ -64,15 +61,15 @@ def main(port):
                     log('worker exited for %s', addr)
                     os._exit(0)
             else:
-                data = os.read(rdy, 4096)
+                data = os.read(ready, 4096)
                 if data:
                     print(data)
                 else:
-                    ts, pid = workers.pop(rdy)
+                    ts, pid = workers.pop(ready)
                     pid2, status, rusage = os.wait4(pid, os.WNOHANG)
                     assert(pid == pid2)
 
-                    os.close(rdy)
+                    os.close(ready)
                     log('worker pid(%d) reaped', pid)
 
         for w in workers:
