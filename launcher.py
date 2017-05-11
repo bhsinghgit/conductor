@@ -2,6 +2,8 @@ import os
 import ssl
 import sys
 import time
+import uuid
+import json
 import pprint
 import signal
 import socket
@@ -13,12 +15,7 @@ logging.basicConfig(format='%(asctime)s %(process)s : %(message)s')
 log = logging.critical
 
 
-def worker():
-    for i in range(10000000):
-        print('output : {0}'.format(i))
-
-
-def main(port):
+def listen(port):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -29,54 +26,51 @@ def main(port):
         log('already running on port(%d)', port)
         os._exit(0)
 
-    workers = dict()
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+
+    total = 0
     while True:
-        for ready in select.select([sock] + workers.keys(), [], [], 1)[0]:
-            if ready == sock:
-                s, addr = sock.accept()
-                log('received connection from %s', addr)
+        if select.select([sock], [], [], 1)[0]:
+            s, addr = sock.accept()
 
-                pipe_r, pipe_w = os.pipe()
+            pid = os.fork()
+            if not pid:
+                env = dict(UUID=uuid.uuid4().hex)
+                env.update(json.loads(s.makefile().readline()))
+                env.update(dict(
+                    USER='someuser',
+                    LOGNAME='someuser',
+                    USERNAME='someuser',
+                    HOME='/tmp'))
 
-                pid = os.fork()
-                if pid:
-                    workers[pipe_r] = (time.time(), pid)
-                    s.close()
-                    os.close(pipe_w)
-                else:
-                    log('worker launched for %s', addr)
+                os.dup2(os.open(os.path.join('logs', env['UUID']),
+                                os.O_CREAT | os.O_WRONLY | os.O_APPEND,
+                                0600), 2)
+                os.write(2, 'uuid(%s) pid(%s) addr%s\n' % (
+                            env['UUID'], os.getpid(), addr))
 
-                    os.dup2(s.fileno(), 0)
-                    os.dup2(s.fileno(), 1)
-                    os.dup2(pipe_w, 2)
+                os.dup2(s.fileno(), 0)
+                os.dup2(s.fileno(), 1)
+                os.closerange(3, 1024)
 
-                    for i in range(3, 1024):
-                        try:
-                            os.close(i)
-                        except:
-                            pass
+                args = ['/usr/bin/python',
+                        os.path.join(os.getcwd(), env['APP'])]
+                os.execve(args[0], args, env)
 
-                    worker()
+            s.close()
+            total += 1
+            log('launched(%d) addr%s total(%d)', pid, addr, total)
 
-                    log('worker exited for %s', addr)
-                    os._exit(0)
-            else:
-                data = os.read(ready, 4096)
-                if data:
-                    print(data)
-                else:
-                    ts, pid = workers.pop(ready)
-                    pid2, status, rusage = os.wait4(pid, os.WNOHANG)
-                    assert(pid == pid2)
+        while total:
+            pid, status, usage = os.wait3(os.WNOHANG)
+            if not pid:
+                break
 
-                    os.close(ready)
-                    log('worker pid(%d) reaped', pid)
-
-        for w in workers:
-            if time.time() > workers[w][0] + 60:
-                os.kill(workers[w][1], signal.SIGKILL)
-                log('worker pid(%d) killed due to timeout', workers[w][1])
+            total -= 1
+            log('reaped(%d) total(%d)', pid, total)
 
 
 if '__main__' == __name__:
-    main(int(sys.argv[1]))
+    if 'listen' == sys.argv[1]:
+        listen(int(sys.argv[2]))
