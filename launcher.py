@@ -5,9 +5,11 @@ import time
 import uuid
 import json
 import socket
+import signal
 import select
 import logging
 
+signal.signal(signal.SIGCHLD, lambda signum, frame: None)
 
 logging.basicConfig(format='%(asctime)s %(process)s : %(message)s')
 log = logging.critical
@@ -24,13 +26,12 @@ if not os.path.isdir('logs'):
 
 total = 0
 while True:
-    if select.select([sock] if total < 25 else [], [], [], 0.05)[0]:
-        s, addr = sock.accept()
-        log('accepted addr%s' % (addr,))
+    try:
+        select.select([sock] if total < 50 else [], [], [])
 
-        pid = os.fork()
-        if not pid:
-            log('forked pid(%d) addr%s' % (os.getpid(), addr))
+        if not os.fork():
+            s, addr = sock.accept()
+            log('forked(%d) addr%s total(%d)' % (os.getpid(), addr, total+1))
 
             env = dict(UUID=uuid.uuid4().hex)
             env.update(json.loads(s.makefile().readline()))
@@ -47,20 +48,19 @@ while True:
             os.dup2(os.open(os.path.join('logs', env['UUID']),
                             os.O_CREAT | os.O_WRONLY | os.O_APPEND,
                             0600), 2)
-            os.closerange(3, 1024)
+            os.closerange(3, 128)
 
             args = ['/usr/bin/python',
                     os.path.join(os.getcwd(), env['APP'])]
             os.execve(args[0], args, env)
 
-        s.close()
         total += 1
-        log('launched pid(%d) addr%s total(%d)', pid, addr, total)
 
-    while total:
-        pid, status, usage = os.wait3(os.WNOHANG)
-        if not pid:
-            break
+    except select.error:
+        while total:
+            pid, status, usage = os.wait3(os.WNOHANG)
+            if not pid:
+                break
 
-        total -= 1
-        log('reaped pid(%d) total(%d)', pid, total)
+            total -= 1
+            log('reaped(%d) total(%d)', pid, total)
