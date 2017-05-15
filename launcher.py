@@ -27,16 +27,16 @@ if not os.path.isdir('logs'):
 total = 0
 while True:
     try:
-        select.select([sock] if total < 50 else [], [], [])
+        select.select([sock] if total < int(sys.argv[2]) else [], [], [])
 
         if not os.fork():
             s, addr = sock.accept()
-            log('forked(%d) addr%s total(%d)' % (os.getpid(), addr, total+1))
+            log('forked(%d) addr%s total(%d)', os.getpid(), addr, total+1)
 
             env = dict(UUID=uuid.uuid4().hex)
             env.update(json.loads(s.makefile().readline()))
 
-            log('pid(%d) uuid(%s)' % (os.getpid(), env['UUID']))
+            log('pid(%d) uuid(%s)', os.getpid(), env['UUID'])
 
             env.update(dict(
                 UUID=env['UUID'],
